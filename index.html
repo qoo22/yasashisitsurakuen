@@ -28,21 +28,28 @@
     display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;
     user-select:none;touch-action:none;-webkit-user-select:none;}
   .btn:active{background:#363636;border-color:#888;}
-  #acts{display:flex;gap:14px;}
-  #acts .btn{width:66px;height:50px;font-size:15px;font-weight:bold;}
+  #acts{display:flex;gap:12px;}
+  #acts .btn{width:84px;height:52px;font-size:15px;font-weight:bold;line-height:1.1;text-align:center;}
   #mbtn{ width:46px;height:46px;font-size:13px; }
+  /* 全画面ボタン（タッチ端末のみ表示） */
+  #fsbtn{ display:none; position:fixed; top:8px; right:8px; width:44px; height:44px;
+    font-size:20px; z-index:60; opacity:0.82; }
   /* タッチ端末（スマホ・タブレット）レイアウト */
   @media (pointer:coarse){
-    #wrap{ justify-content:space-between; padding:6px 0 12px; }
+    #wrap{ justify-content:space-between; padding:2px 0 8px; gap:4px; }
     #pad{ display:flex; }
     #hint{ display:none; }
-    canvas{ max-height:66vh; }
+    canvas{ max-width:100vw; max-height:75vh; }   /* たて: ギリギリまで 拡大・中央 */
+    #fsbtn{ display:flex; }
   }
-  /* 横向きスマホ */
+  /* 横向きスマホ: 中央に 大きく キャンバス、操作は 左、アクションは 右 */
   @media (pointer:coarse) and (orientation:landscape){
-    canvas{ max-height:88vh; }
-    #pad{ position:fixed; bottom:8px; left:0; right:0; max-width:none; pointer-events:none; }
-    #pad>*{ pointer-events:auto; }
+    #wrap{ flex-direction:row; justify-content:center; align-items:center; padding:0; }
+    canvas{ max-width:100vw; max-height:100vh; }
+    #pad{ position:fixed; inset:0; background:transparent; pointer-events:none; display:block; }
+    #dpad{ position:fixed; left:10px; top:50%; transform:translateY(-50%); pointer-events:auto; }
+    #acts{ position:fixed; right:10px; top:50%; transform:translateY(-50%);
+      flex-direction:column; gap:12px; pointer-events:auto; }
   }
 </style>
 </head>
@@ -59,8 +66,9 @@
       <div class="btn" data-k="ArrowLeft">◀</div><div class="btn" id="mbtn" data-k="m">♪</div><div class="btn" data-k="ArrowRight">▶</div>
       <span></span><div class="btn" data-k="ArrowDown">▼</div><span></span>
     </div>
-    <div id="acts"><div class="btn" data-k="x">X</div><div class="btn" data-k="z">Z</div></div>
+    <div id="acts"><div class="btn" data-k="x">もどる</div><div class="btn" data-k="z">けってい</div></div>
   </div>
+  <div id="fsbtn" class="btn" title="全画面">⛶</div>
 </div>
 <script>
 "use strict";
@@ -77,6 +85,7 @@ for(const k of IMG_KEYS){ const im=new Image(); im.src="img/"+k+".png"; IMG[k]=i
 
 const cv=document.getElementById('c'), ctx=cv.getContext('2d');
 const W=cv.width,H=cv.height; ctx.textBaseline='top';
+const IS_TOUCH = (window.matchMedia && window.matchMedia('(pointer:coarse)').matches) || ('ontouchstart' in window);
 
 /* =======================  入力  ======================= */
 const keys={}, pressed={};
@@ -100,6 +109,54 @@ document.querySelectorAll('#pad .btn').forEach(b=>{const k=b.getAttribute('data-
   b.addEventListener('mousedown',dn);b.addEventListener('mouseup',up);b.addEventListener('mouseleave',up);});
 function consume(k){if(pressed[k]){pressed[k]=false;return true;}return false;}
 function clearPressed(){for(const k in pressed)pressed[k]=false;}
+/* ===== タッチ操作（iPhone / Android）=====
+   ・敵の攻撃ターン: キャンバス(=避けボックス)を なぞると ハートが 指に ついてくる（直感的）
+   ・それ以外（会話・メニュー・攻撃バー）: 画面タップ＝けってい */
+(function(){
+  function pos(e){ const r=cv.getBoundingClientRect();
+    const t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0])||e;
+    return { x:(t.clientX-r.left)*(W/r.width), y:(t.clientY-r.top)*(H/r.height) }; }
+  const dodge=()=> typeof state!=='undefined' && (state===ST.ENEMY || state===ST.TUTORIAL);
+  function down(e){ e.preventDefault(); ensureAudio(); const p=pos(e);
+    if(dodge()){ soul.touch=true; soul.tx=p.x; soul.ty=p.y; }
+    else { pressed.confirm=true; } }                 // タップ＝けってい
+  function move(e){ if(dodge() && soul.touch){ e.preventDefault(); const p=pos(e); soul.tx=p.x; soul.ty=p.y; } }
+  function up(e){ if(e&&e.preventDefault)e.preventDefault(); soul.touch=false; }
+  cv.addEventListener('touchstart',down,{passive:false});
+  cv.addEventListener('touchmove',move,{passive:false});
+  cv.addEventListener('touchend',up,{passive:false});
+  cv.addEventListener('touchcancel',up,{passive:false});
+  cv.addEventListener('mousedown',down);
+  cv.addEventListener('mousemove',e=>{ if(e.buttons) move(e); });
+  window.addEventListener('mouseup',up);
+})();
+/* タブを 閉じ／戻し したり、画面を 再表示したとき 音が 止まったままに ならない ように 再開。
+   バックグラウンドで AudioContext が suspend されると 元の音源が 無音化するので、
+   復帰時(force)は 現在のテーマを 鳴らし直す（curTheme が null＝無音区間なら 何もしない）。 */
+function resumeAudio(force){
+  try{ if(AC && AC.state==='suspended') AC.resume(); }catch(e){}
+  if(!curTheme) return;                 // stopMusic中(無音演出)は 復活させない
+  if(force){ curBgmFile=null; stopBgmSource(); playBgmFor(curTheme); }   // 確実に 鳴らし直す
+  else { kickBgm(); }
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) resumeAudio(true); });
+window.addEventListener('pageshow',()=>resumeAudio(true));
+window.addEventListener('focus',()=>resumeAudio(false));
+/* 全画面（横画面で ブラウザのタブ／バーを 隠す）。Androidや一般ブラウザで 有効。
+   iOS Safariは div全画面 非対応のため、ホーム画面に追加すると 全画面になる。 */
+(function(){
+  const fs=document.getElementById('fsbtn'); if(!fs) return;
+  function toggle(e){ if(e){e.preventDefault(); e.stopPropagation();} ensureAudio();
+    const d=document, el=d.documentElement;
+    const isFS = d.fullscreenElement||d.webkitFullscreenElement;
+    try{
+      if(!isFS){ (el.requestFullscreen||el.webkitRequestFullscreen||el.webkitRequestFullScreen||function(){}).call(el); }
+      else { (d.exitFullscreen||d.webkitExitFullscreen||function(){}).call(d); }
+    }catch(err){}
+  }
+  fs.addEventListener('click',toggle);
+  fs.addEventListener('touchend',toggle,{passive:false});
+})();
 
 /* =======================  音楽エンジン  =======================
    BGMは Hugging Face(MusicGen)で 生成した mp3 を music/ フォルダから 再生する。
@@ -1331,15 +1388,50 @@ function argorApproach3(){
   ], ()=>advance(), {dark:0.4, sprite:'char_argor_calm'});
 }
 /* ===== 冒頭: 偽チュートリアル → 裏切り → 救助 → 保護者 → 別れの戦い ===== */
-function smokeBetray(){
+/* ケムリの「騙すチュートリアル」: 操作を おしえる ふりを して、
+   『ともしびの かけら』に ふれさせ ── その ひかりが きみを うつ。 */
+const tut={ orb:null };
+function smokeTutorial(){
   playTheme('explore');
+  const moveHint = IS_TOUCH ? '下の ボックスを ゆびで なぞる' : 'やじるしキー(↑↓←→)で うごく';
   cutscene('char_smoke',[
     'ケムリは、にこにこと きみの まわりを まわった。',
-    '「まずは れんしゅう だよ。\n  ほら、そこに『ともしびの かけら』が ある」',
-    '「あれは、ともだちに なるための しんせつな ひかり。\n  ね、さわって ごらん?」',
-    '＊（ちいさな ひかりの 玉が、ふわふわと\n   きみの ほうへ ただよって くる）',
-    '＊（きみは その ひかりに、そっと 手を のばした ──）',
-  ], ()=>smokeBetray2(), {dark:0.5});
+    '「ようこそ、ちかの せかいへ！\n  ぼくが あそびかたを おしえて あげる」',
+    '「うごきかたは、かんたん。\n  '+moveHint+' だけ だよ」',
+    '「そこに『ともしびの かけら』が あるでしょ?\n  ともだちに なる ための、しんせつな ひかり」',
+    '「さあ ── ハートを うごかして、\n  その ひかりに ふれて ごらん?」',
+  ], ()=>startSmokeTut(), {dark:0.5});
+}
+function startSmokeTut(){
+  bphase.box={x:W/2-110,y:255,w:220,h:135};
+  soul.x=bphase.box.x+26; soul.y=bphase.box.y+bphase.box.h/2; soul.invuln=0; soul.touch=false;
+  tut.orb={ x:bphase.box.x+bphase.box.w-32, base:bphase.box.y+bphase.box.h/2, y:bphase.box.y+bphase.box.h/2, ph:0, r:9, got:false };
+  state=ST.TUTORIAL; clearPressed();
+}
+function updateTutorial(){
+  const box=bphase.box, o=tut.orb; if(!o)return; const pad=6;
+  let mvx=0,mvy=0;
+  if(soul.touch){ const tx=Math.max(box.x+pad,Math.min(box.x+box.w-pad,soul.tx)), ty=Math.max(box.y+pad,Math.min(box.y+box.h-pad,soul.ty));
+    mvx=tx-soul.x; mvy=ty-soul.y; soul.x+=mvx*0.55; soul.y+=mvy*0.55; }
+  else { const sp=2.7; if(keys.left)mvx-=sp;if(keys.right)mvx+=sp;if(keys.up)mvy-=sp;if(keys.down)mvy+=sp; soul.x+=mvx; soul.y+=mvy; }
+  soul.x=Math.max(box.x+pad,Math.min(box.x+box.w-pad,soul.x));
+  soul.y=Math.max(box.y+pad,Math.min(box.y+box.h-pad,soul.y));
+  o.ph+=0.05; o.y=o.base+Math.sin(o.ph)*10;   // かけらは ふわふわ
+  const dx=soul.x-o.x, dy=soul.y-o.y;
+  if(!o.got && dx*dx+dy*dy < (o.r+7)*(o.r+7)){ o.got=true; soul.touch=false; smokeBetray2(); }  // 触れた瞬間 裏切り
+}
+function drawTutorial(){
+  drawImgCover(IMG.char_smoke, 0.6);
+  txt('* ケムリ', W/2, 26, 16, '#fff','center');
+  const b=bphase.box; ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.strokeRect(b.x,b.y,b.w,b.h);
+  // ともしびの かけら（ひかる 玉）
+  const o=tut.orb; if(o){
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    for(let i=3;i>=1;i--){ ctx.fillStyle='rgba(255,235,150,'+(0.12*i)+')'; ctx.beginPath(); ctx.arc(o.x,o.y,o.r+i*4,0,7); ctx.fill(); }
+    ctx.fillStyle='#fff6c8'; ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,7); ctx.fill(); ctx.restore();
+  }
+  drawHeart(soul.x, soul.y, '#f00', 6);
+  txt(IS_TOUCH?'ボックスを なぞって、ひかりに ふれよう':'やじるしで うごいて、ひかりに ふれよう', W/2, b.y+b.h+14, 13, '#bcbcbc','center');
 }
 function smokeBetray2(){
   stopMusic(); se('break'); shake=22; flash=16; player.hp=Math.max(4,player.hp-8);
@@ -1408,7 +1500,7 @@ function buildStory(){
   /* ---- プロローグ ---- */
   FN('', sceneIntro); FN('', sceneAwaken);
   /* 冒頭の感情設計: 偽チュートリアル → 裏切り → 救助 → 保護者 → 別れの戦い */
-  FN('', smokeBetray);                       // ケムリの 偽チュートリアル → 裏切り → ホムラ救助 → 案内（チェーン）
+  FN('', smokeTutorial);                     // ケムリの 騙すチュートリアル（操作体験）→ 裏切り → ホムラ救助 → 案内
   WK('ともしびの 家', {title:'ともしびの 家', bg:null,
     npcs:[
       {x:180,y:300,label:'子ども部屋',lines:['ちいさな 子ども部屋。','ベッドが、いくつも ならんで いる。','どれも、ながい あいだ つかわれて いない。','まくらもとに、ふるい くつが、そろえて ある。']},
@@ -1641,13 +1733,13 @@ function drawWalk(){
 
 /* =======================  戦闘  ======================= */
 let enemies=[],eIndex=0,enemy=null;
-const ST={TITLE:'title',CUT:'cut',WALK:'walk',MENU:'menu',SUB:'sub',FIGHTBAR:'fightbar',DIALOG:'dialog',ENEMY:'enemy',RESULT:'result',GAMEOVER:'gameover',ARGORCUT:'argorcut'};
+const ST={TITLE:'title',CUT:'cut',WALK:'walk',MENU:'menu',SUB:'sub',FIGHTBAR:'fightbar',DIALOG:'dialog',ENEMY:'enemy',RESULT:'result',GAMEOVER:'gameover',ARGORCUT:'argorcut',TUTORIAL:'tutorial'};
 let state=ST.TITLE;
 let menuIndex=0; const MENU=['たたかう','こうどう','どうぐ','みのがす'];
 let subType='',subIndex=0,subOptions=[];
 let dialogLines=[],dialogText='',dialogShown=0,dialogTimer=0,afterDialog=null,dialogReturnWalk=false;
 const bphase={active:false,t:0,frames:0,bullets:[],box:{x:0,y:0,w:0,h:0}};
-const soul={x:0,y:0,invuln:0};
+const soul={x:0,y:0,invuln:0,tx:0,ty:0,touch:false};
 let shake=0,flash=0,fightHitFlash=0,fightBarX=0,fightBarDir=1,fightBarLock=-1,resultTimer=0,resultNext=null;
 /* 行動選択中ずっと 戦闘ボックスに のこす「いまの 状況・表情」テキスト。
    戦闘に入った とき と 毎ターン 必ず 更新し、メニュー表示中に 見えつづける。 */
@@ -2121,6 +2213,7 @@ function update(){
         if(consume('confirm')){fightBarLock=fightBarX;resolveFight();} }
       break;}
     case ST.ENEMY: updateBulletPhase(); break;
+    case ST.TUTORIAL: updateTutorial(); break;
     case ST.RESULT: if(--resultTimer<=0){const n=resultNext;resultNext=null;if(n)n();} break;
     case ST.ARGORCUT: updateArgorCut(); break;
     case ST.GAMEOVER: updateGameOver(); break;
@@ -2150,13 +2243,21 @@ function resetGame(){ Object.assign(player,{hp:20,maxhp:20,lv:1,exp:0,gold:0,can
   Object.assign(flags,{obeyedSmoke:false,seq:0,argorSpared:false}); enemies=makeEnemies(); buildStory(); curPlace=''; eIndex=0; }
 
 function updateBulletPhase(){
-  const b=bphase,box=b.box; b.t++;
-  const sp=2.7; let mvx=0,mvy=0;
-  if(keys.left)mvx-=sp;if(keys.right)mvx+=sp;if(keys.up)mvy-=sp;if(keys.down)mvy+=sp;
-  soul.x+=mvx; soul.y+=mvy; const pad=6;
+  const b=bphase,box=b.box; b.t++; const pad=6;
+  let mvx=0,mvy=0;
+  if(soul.touch){                 // タッチ: ハートが 指の いちへ ついてくる
+    const tx=Math.max(box.x+pad,Math.min(box.x+box.w-pad,soul.tx));
+    const ty=Math.max(box.y+pad,Math.min(box.y+box.h-pad,soul.ty));
+    mvx=tx-soul.x; mvy=ty-soul.y;
+    soul.x+=mvx*0.55; soul.y+=mvy*0.55;
+  } else {                        // キーボード／Dパッド
+    const sp=2.7;
+    if(keys.left)mvx-=sp;if(keys.right)mvx+=sp;if(keys.up)mvy-=sp;if(keys.down)mvy+=sp;
+    soul.x+=mvx; soul.y+=mvy;
+  }
   soul.x=Math.max(box.x+pad,Math.min(box.x+box.w-pad,soul.x));
   soul.y=Math.max(box.y+pad,Math.min(box.y+box.h-pad,soul.y));
-  const moving=(mvx!==0||mvy!==0);
+  const moving=(Math.abs(mvx)+Math.abs(mvy) > 0.8);   // 青/橙弾の「動いている」判定
   enemy.attack(b);
   if(soul.invuln>0)soul.invuln--;
   for(let i=b.bullets.length-1;i>=0;i--){const bl=b.bullets[i]; bl.upd&&bl.upd();
@@ -2184,6 +2285,7 @@ function draw(){
     case ST.CUT: drawCut(); break;
     case ST.WALK: drawWalk(); break;
     case ST.ARGORCUT: drawArgorCut(); break;
+    case ST.TUTORIAL: drawTutorial(); break;
     case ST.GAMEOVER: drawGameOver(); break;
     case ST.DIALOG:
       if(dialogReturnWalk){ drawWalk(); drawOverworldDialog(); }  // 探索中の会話: 部屋を背景に
@@ -2223,7 +2325,9 @@ function drawTitle(){
   txt('FIGHT  ACT  ITEM  MERCY     M: 音楽 ON/OFF',W/2,448,12,'#444','center');
 }
 function drawCut(){
-  drawImgCover(cut.img?IMG[cut.img]:null, cut.dark);
+  // 背景の拡大画像: スプライトと 同じ画像なら 描かない（拡大画像と スプライトの 二重表示を 防ぐ）
+  const bgKey = (cut.img && cut.img!==cut.sprite) ? cut.img : null;
+  drawImgCover(bgKey?IMG[bgKey]:null, cut.dark);
   // 中央に立つ キャラ画像（任意）── 会話シーンで キャラを 見せる
   if(cut.sprite && IMG[cut.sprite]){
     if(cut.sprite==='char_argor_calm'||cut.sprite==='char_argor'){
