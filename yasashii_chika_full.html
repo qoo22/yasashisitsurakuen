@@ -1,0 +1,2521 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>やさしい失楽園 ── 完全版</title>
+<style>
+  *{ -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none; }
+  html,body{margin:0;padding:0;background:#000;width:100%;height:100%;
+    position:fixed;inset:0;overflow:hidden;overscroll-behavior:none;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    font-family:"Courier New",monospace;color:#fff;
+    -webkit-user-select:none;user-select:none;touch-action:none;}
+  #wrap{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;height:100%;
+    justify-content:center;box-sizing:border-box;}
+  canvas{background:#000;image-rendering:pixelated;border:2px solid #1c1c1c;
+    max-width:98vw;max-height:84vh;touch-action:none;display:block;}
+  #hint{color:#666;font-size:12px;letter-spacing:1px;text-align:center;line-height:1.6;}
+  #hint b{color:#bbb;}
+  #pad{display:none;gap:24px;align-items:center;justify-content:space-between;
+    width:100%;max-width:560px;padding:0 14px;box-sizing:border-box;user-select:none;}
+  #dpad{display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,48px);gap:5px;}
+  .btn{background:#141414;border:2px solid #4a4a4a;color:#ddd;border-radius:10px;
+    display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;
+    user-select:none;touch-action:none;-webkit-user-select:none;}
+  .btn:active{background:#363636;border-color:#888;}
+  #acts{display:flex;gap:12px;}
+  #acts .btn{width:84px;height:52px;font-size:15px;font-weight:bold;line-height:1.1;text-align:center;}
+  #mbtn{ width:46px;height:46px;font-size:13px; }
+  /* 全画面ボタン（タッチ端末のみ表示） */
+  #fsbtn{ display:none; position:fixed; top:8px; right:8px; width:44px; height:44px;
+    font-size:20px; z-index:60; opacity:0.82; }
+  /* タッチ端末（スマホ・タブレット）レイアウト */
+  @media (pointer:coarse){
+    #wrap{ justify-content:space-between; padding:2px 0 8px; gap:4px; }
+    #pad{ display:flex; }
+    #hint{ display:none; }
+    canvas{ max-width:100vw; max-height:75vh; }   /* たて: ギリギリまで 拡大・中央 */
+    #fsbtn{ display:flex; }
+  }
+  /* 横向きスマホ: 中央に 大きく キャンバス、操作は 左、アクションは 右 */
+  @media (pointer:coarse) and (orientation:landscape){
+    #wrap{ flex-direction:row; justify-content:center; align-items:center; padding:0; }
+    canvas{ max-width:100vw; max-height:100vh; }
+    #pad{ position:fixed; inset:0; background:transparent; pointer-events:none; display:block; }
+    #dpad{ position:fixed; left:10px; top:50%; transform:translateY(-50%); pointer-events:auto; }
+    #acts{ position:fixed; right:10px; top:50%; transform:translateY(-50%);
+      flex-direction:column; gap:12px; pointer-events:auto; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="640" height="480"></canvas>
+  <div id="hint">
+    <b>↑↓←→</b> 移動・選択 &nbsp;|&nbsp; <b>Z / Enter</b> 決定・はなす &nbsp;|&nbsp; <b>X / Shift</b> もどる &nbsp;|&nbsp; <b>M</b> 音楽 ON/OFF<br>
+    敵の攻撃ターンは <b>赤いハート</b> を動かして弾を避ける
+  </div>
+  <div id="pad">
+    <div id="dpad">
+      <span></span><div class="btn" data-k="ArrowUp">▲</div><span></span>
+      <div class="btn" data-k="ArrowLeft">◀</div><div class="btn" id="mbtn" data-k="m">♪</div><div class="btn" data-k="ArrowRight">▶</div>
+      <span></span><div class="btn" data-k="ArrowDown">▼</div><span></span>
+    </div>
+    <div id="acts"><div class="btn" data-k="x">もどる</div><div class="btn" data-k="z">けってい</div></div>
+  </div>
+  <div id="fsbtn" class="btn" title="全画面">⛶</div>
+</div>
+<script>
+"use strict";
+/* =========================================================================
+   やさしい失楽園  ── 完全版 (The Gentle Paradise Lost · Full)
+   オリジナルの物語・音楽・アート。設計思想はアンダーテール型。
+   © 物語/楽曲はこのゲームのための完全オリジナル。
+   ========================================================================= */
+
+/* ---- 画像 (外部ファイル img/<name>.png を参照) ---- */
+const IMG_KEYS = ["char_hone","char_kirari","char_wanda","char_kakuto","char_smoke","char_soyo","char_nemu","char_kasa","char_pachi","char_shizuku","char_kodama","char_neji","char_houki","char_homura","char_argor","char_argor_calm","char_argor_2","char_argor_atk","spear1","spear2","spear3","title_bg","room_gate","ending_light","ending_hollow","save_flame","bg_ruins","bg_water","bg_factory","char_smoke_big","bg_throne"];
+const IMG = {};
+for(const k of IMG_KEYS){ const im=new Image(); im.src="img/"+k+".png"; IMG[k]=im; }
+
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+const W=cv.width,H=cv.height; ctx.textBaseline='top';
+const IS_TOUCH = (window.matchMedia && window.matchMedia('(pointer:coarse)').matches) || ('ontouchstart' in window);
+
+/* =======================  入力  ======================= */
+const keys={}, pressed={};
+function normKey(k){switch(k){
+  case'ArrowUp':case'w':case'W':return'up';
+  case'ArrowDown':case's':case'S':return'down';
+  case'ArrowLeft':case'a':case'A':return'left';
+  case'ArrowRight':case'd':case'D':return'right';
+  case'z':case'Z':case'Enter':case' ':return'confirm';
+  case'x':case'X':case'Shift':case'Backspace':return'cancel';
+  case'm':case'M':return'mute';
+}return null;}
+function setKey(k,d){k=normKey(k);if(!k)return;if(d&&!keys[k])pressed[k]=true;keys[k]=d;}
+window.addEventListener('keydown',e=>{const n=normKey(e.key);if(n){e.preventDefault();setKey(e.key,true);ensureAudio();if(n==='mute')toggleMute();}});
+window.addEventListener('keyup',e=>setKey(e.key,false));
+document.querySelectorAll('#pad .btn').forEach(b=>{const k=b.getAttribute('data-k');
+  const dn=e=>{e.preventDefault();ensureAudio(); if(k==='m'){ toggleMute(); return; } setKey(k,true);};
+  const up=e=>{e.preventDefault(); if(k==='m')return; setKey(k,false);};
+  b.addEventListener('touchstart',dn,{passive:false});b.addEventListener('touchend',up,{passive:false});
+  b.addEventListener('touchcancel',up,{passive:false});
+  b.addEventListener('mousedown',dn);b.addEventListener('mouseup',up);b.addEventListener('mouseleave',up);});
+function consume(k){if(pressed[k]){pressed[k]=false;return true;}return false;}
+function clearPressed(){for(const k in pressed)pressed[k]=false;}
+/* ===== タッチ操作（iPhone / Android）=====
+   ・敵の攻撃ターン: キャンバス(=避けボックス)を なぞると ハートが 指に ついてくる（直感的）
+   ・それ以外（会話・メニュー・攻撃バー）: 画面タップ＝けってい */
+(function(){
+  function pos(e){ const r=cv.getBoundingClientRect();
+    const t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0])||e;
+    return { x:(t.clientX-r.left)*(W/r.width), y:(t.clientY-r.top)*(H/r.height) }; }
+  const dodge=()=> typeof state!=='undefined' && (state===ST.ENEMY || state===ST.TUTORIAL);
+  function down(e){ e.preventDefault(); ensureAudio(); const p=pos(e);
+    if(dodge()){ soul.touch=true; soul.tx=p.x; soul.ty=p.y; }
+    else { pressed.confirm=true; } }                 // タップ＝けってい
+  function move(e){ if(dodge() && soul.touch){ e.preventDefault(); const p=pos(e); soul.tx=p.x; soul.ty=p.y; } }
+  function up(e){ if(e&&e.preventDefault)e.preventDefault(); soul.touch=false; }
+  cv.addEventListener('touchstart',down,{passive:false});
+  cv.addEventListener('touchmove',move,{passive:false});
+  cv.addEventListener('touchend',up,{passive:false});
+  cv.addEventListener('touchcancel',up,{passive:false});
+  cv.addEventListener('mousedown',down);
+  cv.addEventListener('mousemove',e=>{ if(e.buttons) move(e); });
+  window.addEventListener('mouseup',up);
+})();
+/* タブを 閉じ／戻し したり、画面を 再表示したとき 音が 止まったままに ならない ように 再開。
+   バックグラウンドで AudioContext が suspend されると 元の音源が 無音化するので、
+   復帰時(force)は 現在のテーマを 鳴らし直す（curTheme が null＝無音区間なら 何もしない）。 */
+function resumeAudio(force){
+  try{ if(AC && AC.state==='suspended') AC.resume(); }catch(e){}
+  if(!curTheme) return;                 // stopMusic中(無音演出)は 復活させない
+  if(force){ curBgmFile=null; stopBgmSource(); playBgmFor(curTheme); }   // 確実に 鳴らし直す
+  else { kickBgm(); }
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) resumeAudio(true); });
+window.addEventListener('pageshow',()=>resumeAudio(true));
+window.addEventListener('focus',()=>resumeAudio(false));
+/* 全画面（横画面で ブラウザのタブ／バーを 隠す）。Androidや一般ブラウザで 有効。
+   iOS Safariは div全画面 非対応のため、ホーム画面に追加すると 全画面になる。 */
+(function(){
+  const fs=document.getElementById('fsbtn'); if(!fs) return;
+  function toggle(e){ if(e){e.preventDefault(); e.stopPropagation();} ensureAudio();
+    const d=document, el=d.documentElement;
+    const isFS = d.fullscreenElement||d.webkitFullscreenElement;
+    try{
+      if(!isFS){ (el.requestFullscreen||el.webkitRequestFullscreen||el.webkitRequestFullScreen||function(){}).call(el); }
+      else { (d.exitFullscreen||d.webkitExitFullscreen||function(){}).call(d); }
+    }catch(err){}
+  }
+  fs.addEventListener('click',toggle);
+  fs.addEventListener('touchend',toggle,{passive:false});
+})();
+
+/* =======================  音楽エンジン  =======================
+   BGMは Hugging Face(MusicGen)で 生成した mp3 を music/ フォルダから 再生する。
+   効果音(SE)と 会話ボイスは ひきつづき Web Audio で 合成する。
+*/
+let AC=null, masterGain=null, bgmGain=null, voiceGain=null, muted=false, curTheme=null, sched=null;
+let bgmEl=null, curBgmFile=null, bgmSource=null; const musicBuffers={};
+/* テーマ名 → 楽曲ファイル の マッピング */
+const BGM={
+  _default:'music/explore.mp3',
+  title:'music/title.mp3',
+  // 道中(非戦闘)BGM: 場所ごとに「温度」をかえた、余白おおめの 雰囲気曲
+  explore:'music/explore.mp3', ruins:'music/explore.mp3',   // 遺跡: さびしく なつかしい
+  water:'music/area_water.mp3',                              // 水路: しめった神秘・しずく
+  theater:'music/area_theater.mp3',                          // 劇場: 色あせたワルツ
+  factory:'music/area_factory.mp3',                          // 工場: 静かで不穏な機械
+  peace:'music/hopeful.mp3',
+  hone:'music/battle.mp3', kirari:'music/battle.mp3', wanda:'music/battle.mp3',
+  boss:'music/boss.mp3', kakuto:'music/boss.mp3',
+  smoke:'music/dark.mp3',
+  // モンスター別 戦闘曲（enemy.key を テーマ名として 使う）
+  char_soyo:'music/m_soyo.mp3', char_nemu:'music/m_nemu.mp3', char_hone:'music/m_hone.mp3',
+  char_kasa:'music/m_kasa.mp3', char_pachi:'music/m_pachi.mp3', char_kirari:'music/m_kirari.mp3',
+  char_shizuku:'music/m_shizuku.mp3', char_kodama:'music/m_kodama.mp3', char_wanda:'music/m_wanda.mp3',
+  char_neji:'music/m_neji.mp3', char_houki:'music/m_houki.mp3', char_kakuto:'music/m_kakuto.mp3',
+  char_homura:'music/homura_boss.mp3',   // ホムラ戦: 別れの戦い
+  homura:'music/homura.mp3',             // ホムラと過ごす: 温かい・母性
+  argor_intro:'music/argor_intro.mp3',   // 導入曲(Bergentrückung的): 王の登場・覚悟・別れ
+  berg:'music/berg.mp3',                 // ベルゲントリュッケン風: 王の別れ・決意（写真が出る くだり）
+  argor:'music/argor_battle.mp3',        // 本戦(ASGORE的): MERCY破壊後の 悲壮な決戦
+  argor_sad:'music/sad.mp3',
+  light:'music/hopeful.mp3', hollow:'music/sad.mp3', gameover:'music/gameover.mp3',
+  end_true:'music/hopeful.mp3', end_bitter:'music/sad.mp3', end_dark:'music/dark.mp3',
+};
+/* BGM: できれば Web Audio の AudioBufferSource を loop=true で 鳴らす（サンプル精度＝継ぎ目なし）。
+   http配信では これが 使える。file:// 等で fetch が だめな時は <audio>要素に フォールバック。 */
+function bgmAudio(){
+  if(!bgmEl){ try{ bgmEl=new Audio(); bgmEl.loop=true; bgmEl.preload='auto'; }catch(e){ bgmEl=null; return null; } }
+  if(bgmEl) bgmEl.volume = muted?0:0.6;
+  return bgmEl;
+}
+function ensureAudio(){
+  if(!AC){
+    try{
+      AC=new (window.AudioContext||window.webkitAudioContext)();
+      masterGain=AC.createGain(); masterGain.gain.value=muted?0:0.16; masterGain.connect(AC.destination); // 効果音用
+      bgmGain=AC.createGain();    bgmGain.gain.value=muted?0:0.28;  bgmGain.connect(AC.destination);       // BGM用（会話が 聞こえるよう 控えめ）
+      voiceGain=AC.createGain();  voiceGain.gain.value=muted?0:0.85; voiceGain.connect(AC.destination);     // 会話音（ボイスブリップ）用・BGMより 前に出す
+      try{ const b=AC.createBuffer(1,1,22050); const s=AC.createBufferSource(); s.buffer=b; s.connect(AC.destination); s.start(0); }catch(e){}
+    }catch(e){ AC=null; }
+  }
+  if(AC && AC.state==='suspended') AC.resume();
+  kickBgm();   // ユーザー操作の 中で BGMの 再生を 開始/再開する
+}
+function kickBgm(){
+  // curTheme が ある ときだけ 再開する。stopMusic()で 止めた(curTheme=null)場合は
+  // キー入力で ensureAudio→kickBgm が 呼ばれても 無音を 保つ（古い<audio>を 復活させない）。
+  if(curTheme){ playBgmFor(curTheme); }
+}
+function toggleMute(){ muted=!muted;
+  if(masterGain) masterGain.gain.value=muted?0:0.16;
+  if(bgmGain) bgmGain.gain.value=muted?0:0.28;
+  if(voiceGain) voiceGain.gain.value=muted?0:0.85;
+  if(bgmEl) bgmEl.volume=muted?0:0.32;
+}
+function stopBgmSource(){
+  if(bgmSource){ try{ bgmSource.stop(); bgmSource.disconnect(); }catch(e){} bgmSource=null; }
+  if(bgmEl){ try{ bgmEl.pause(); }catch(e){} }
+}
+function loadBuffer(file){
+  if(musicBuffers[file]) return Promise.resolve(musicBuffers[file]);
+  return fetch(file).then(r=>r.arrayBuffer()).then(ab=>new Promise((res,rej)=>{
+    AC.decodeAudioData(ab, b=>{ musicBuffers[file]=b; res(b); }, rej);
+  }));
+}
+function htmlBgm(file,noloop){
+  const el=bgmAudio(); if(!el) return;
+  if(el.getAttribute('data-f')!==file){ el.src=file; el.setAttribute('data-f',file); }
+  el.loop=!noloop;
+  el.volume=muted?0:0.32;
+  const p=el.play(); if(p&&p.catch)p.catch(()=>{});
+}
+function playBgmFile(file,noloop){
+  if(!file) return;
+  if(curBgmFile===file && (bgmSource || (bgmEl && !bgmEl.paused))) return;  // 同じ曲を再生中
+  curBgmFile=file;
+  if(AC){
+    loadBuffer(file).then(buf=>{
+      if(curBgmFile!==file) return;                  // 読み込み中に 別の曲へ
+      stopBgmSource();
+      const s=AC.createBufferSource(); s.buffer=buf; s.loop=!noloop;  // ★ noloop時は 1回だけ
+      s.connect(bgmGain); s.start(0); bgmSource=s;
+    }).catch(()=>{ htmlBgm(file,noloop); });          // fetch/デコード 失敗時は <audio>へ
+  } else { htmlBgm(file,noloop); }
+}
+function playBgmFor(name,noloop){ playBgmFile(BGM[name] || BGM._default, noloop); }
+function midi(n){ return 440*Math.pow(2,(n-69)/12); }
+function blip(freq,dur,type,vol,t0){
+  if(!AC||muted) return;
+  const t=t0||AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type||'square'; o.frequency.value=freq;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(vol||0.5,t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+dur+0.02);
+}
+/* テーマ定義: lead(midi列), bass(midi列), tempo(秒/拍), leadType */
+const N=0; // rest
+const THEMES={
+  title:{tempo:0.34,leadType:'triangle',
+    lead:[69,71,72,74,72,71,69,N, 67,69,71,69,67,N,N,N, 64,67,69,71,72,71,69,67, 69,N,N,N,N,N,N,N],
+    bass:[57,N,52,N,53,N,52,N, 50,N,55,N,52,N,55,N]},
+  explore:{tempo:0.30,leadType:'triangle',
+    lead:[72,N,74,N,76,74,72,N, 71,N,69,N,67,N,69,N, 72,N,71,N,69,N,67,N, 64,N,N,N,N,N,N,N],
+    bass:[48,N,55,N,50,N,57,N, 53,N,60,N,55,N,N,N]},
+  hone:{tempo:0.20,leadType:'square',  // こわがり: 上ずって ふるえる
+    lead:[76,77,76,77,76,N,72,N, 74,75,74,75,74,N,71,N, 76,77,76,N,79,N,76,N, 72,N,71,N,69,N,N,N],
+    bass:[40,40,N,40,41,41,N,41]},
+  kirari:{tempo:0.24,leadType:'square', // ナルシスト: 華やか
+    lead:[72,76,79,84,79,76,72,76, 74,77,81,86,81,77,74,77, 76,79,83,88,83,79,76,N, 84,83,81,79,77,76,74,72],
+    bass:[48,55,52,59,53,60,55,62]},
+  wanda:{tempo:0.36,leadType:'triangle', // さみしい: あたたかい
+    lead:[67,N,72,N,71,69,67,N, 64,N,67,N,69,N,N,N, 67,N,72,74,76,N,74,N, 72,N,71,N,67,N,N,N],
+    bass:[48,N,55,N,53,N,52,N, 45,N,52,N,48,N,N,N]},
+  kakuto:{tempo:0.18,leadType:'square', // 几帳面: 規則的・冷たい
+    lead:[60,60,67,67,60,60,67,67, 62,62,69,69,62,62,69,69, 64,64,71,71,64,64,71,71, 67,65,64,62,60,N,N,N],
+    bass:[36,36,36,36,38,38,38,38, 40,40,40,40,43,43,N,N]},
+  boss:{tempo:0.155,leadType:'square', // 緊張
+    lead:[69,72,76,72,69,72,76,72, 68,71,75,71,68,71,75,71, 67,70,74,70,67,70,74,70, 76,75,74,73,72,71,70,69],
+    bass:[33,33,40,40,32,32,39,39, 31,31,38,38,33,33,40,40]},
+  ruins:{tempo:0.32,leadType:'triangle', // 地方1: まち跡（さびしく あたたかい）
+    lead:[69,N,72,N,71,N,69,N, 67,N,64,N,67,N,69,N, 72,N,71,N,69,N,67,N, 64,N,N,N,N,N,N,N],
+    bass:[45,N,52,N,48,N,55,N, 41,N,48,N,45,N,N,N]},
+  theater:{tempo:0.26,leadType:'square', // 地方2: 劇場街（はなやか）
+    lead:[72,76,79,N,76,79,84,N, 71,74,79,N,74,79,83,N, 72,76,79,76,72,69,67,N, 64,67,72,N,N,N,N,N],
+    bass:[48,55,52,59,53,60,55,62]},
+  water:{tempo:0.40,leadType:'triangle', // 地方3: しずく（しずか・とうめい）
+    lead:[76,N,N,72,N,N,74,N, 71,N,N,67,N,N,69,N, 72,N,N,76,N,79,N,N, 74,N,N,N,N,N,N,N],
+    bass:[48,N,N,N,55,N,N,N, 53,N,N,N,52,N,N,N]},
+  factory:{tempo:0.16,leadType:'square', // 地方4: 歯車工場（きかいてき）
+    lead:[60,67,60,67,62,69,62,69, 64,71,64,71,65,72,65,72, 60,67,60,67,62,69,62,69, 64,62,60,N,N,N,N,N],
+    bass:[36,36,36,36,41,41,41,41, 38,38,38,38,43,43,43,43]},
+  smoke:{tempo:0.17,leadType:'sawtooth', // ケムリ対決（ぶきみ）
+    lead:[68,N,71,N,67,N,70,N, 66,N,69,N,65,N,68,N, 68,69,70,71,72,71,70,69, 68,N,N,N,N,N,N,N],
+    bass:[32,32,N,32,31,31,N,31, 30,30,N,30,33,33,N,33]},
+  argor:{tempo:0.24,leadType:'square', // 灰冠の王（荘厳だが かなしい・決戦）
+    lead:[69,N,76,75,76,N,72,N, 74,N,72,71,72,N,69,N, 68,N,75,74,75,N,71,N, 76,75,74,72,71,69,68,N,
+          69,N,72,76,79,N,76,N, 75,74,72,71,69,N,N,N, 67,N,72,71,72,74,76,79, 72,N,N,N,N,N,N,N],
+    bass:[33,40,33,40,28,35,28,35, 31,38,31,38,33,40,33,40]},
+  argor_sad:{tempo:0.40,leadType:'triangle', // 王ではなくなった後（しずか）
+    lead:[69,N,N,72,N,N,71,N, 67,N,N,69,N,N,N,N, 64,N,N,67,N,69,N,N, 72,N,71,N,69,N,N,N],
+    bass:[45,N,N,N,40,N,N,N, 41,N,N,N,33,N,N,N]},
+  end_true:{tempo:0.34,leadType:'triangle', // 真エンド: あたたかい・希望
+    lead:[72,76,79,84, 83,79,76,79, 81,N,77,N,74,77,81,N, 79,N,76,N,72,74,76,N, 72,76,79,84, 86,N,84,N, 83,81,79,77, 76,N,N,N],
+    bass:[48,55,52,59, 53,60,57,N, 50,57,53,60, 48,55,52,N]},
+  end_bitter:{tempo:0.42,leadType:'triangle', // ほろにがい中立
+    lead:[69,72,76,N, 74,72,71,N, 67,69,71,N, 69,N,N,N, 72,76,79,N, 77,76,74,N, 71,69,67,69, 69,N,N,N],
+    bass:[45,52,48,55, 41,48,45,N]},
+  end_dark:{tempo:0.5,leadType:'triangle', // むなしい・不穏
+    lead:[69,N,N,N, 68,N,N,N, 64,N,N,N, 63,N,N,N, 60,N,N,N,N,N,N,N, 56,N,N,N,N,N,N,N],
+    bass:[33,N,N,N, 32,N,N,N, 28,N,N,N, 27,N,N,N]},
+  peace:{tempo:0.42,leadType:'triangle', // 見逃した時の安らぎ
+    lead:[72,N,76,N,79,N,76,N, 74,N,71,N,69,N,N,N, 72,N,76,N,81,79,76,N, 74,N,72,N,71,N,N,N],
+    bass:[48,N,55,N,53,N,52,N]},
+  light:{tempo:0.40,leadType:'triangle', // 光のエンディング
+    lead:[64,67,72,71,69,67,69,72, 74,72,71,69,67,69,71,N, 76,74,72,71,72,74,76,79, 72,N,N,N,N,N,N,N],
+    bass:[48,55,52,59,53,60,55,N]},
+  hollow:{tempo:0.5,leadType:'triangle', // むなしいエンディング
+    lead:[69,N,N,N,67,N,N,N, 64,N,N,N,62,N,N,N, 60,N,N,N,N,N,N,N, N,N,N,N,N,N,N,N],
+    bass:[33,N,N,N,N,N,N,N]},
+  gameover:{tempo:0.4,leadType:'triangle',
+    lead:[69,67,64,60,N,N,N,N],bass:[45,N,40,N]},
+};
+/* テーマ切り替え → 対応する 生成楽曲(mp3)を ループ再生 */
+function playTheme(name,force,noloop){
+  if(curTheme===name && !force){ return; }
+  curTheme=name;
+  playBgmFor(name,noloop);
+}
+/* 効果音 */
+function se(kind){
+  if(!AC||muted)return; const t=AC.currentTime;
+  if(kind==='select') blip(660,0.05,'square',0.3,t);
+  else if(kind==='confirm'){ blip(880,0.05,'square',0.35,t); blip(1320,0.05,'square',0.25,t+0.05); }
+  else if(kind==='cancel') blip(330,0.06,'square',0.3,t);
+  else if(kind==='hit'){ blip(160,0.12,'square',0.5,t); blip(110,0.12,'sawtooth',0.3,t); }
+  else if(kind==='hurt'){ blip(200,0.15,'sawtooth',0.5,t); blip(150,0.2,'square',0.4,t+0.02); }
+  else if(kind==='heal'){ blip(880,0.1,'triangle',0.4,t); blip(1320,0.12,'triangle',0.3,t+0.08); }
+  else if(kind==='spare'){ [659,784,988,1319].forEach((f,i)=>blip(f,0.18,'triangle',0.35,t+i*0.09)); }
+  else if(kind==='text') blip(740,0.02,'square',0.12,t);
+  else if(kind==='save'){ [523,659,784,1047].forEach((f,i)=>blip(f,0.25,'triangle',0.3,t+i*0.12)); }
+  else if(kind==='break'){ // MERCY破壊: 鈍い金属音＋下降
+    blip(220,0.25,'sawtooth',0.55,t); blip(110,0.35,'square',0.5,t+0.02);
+    blip(70,0.5,'sawtooth',0.45,t+0.06);
+    const o=AC.createGain();o.gain.setValueAtTime(0.18,t);o.gain.exponentialRampToValueAtTime(0.0001,t+0.3);
+    const bs=AC.createBufferSource();const buf=AC.createBuffer(1,4096,AC.sampleRate);const d=buf.getChannelData(0);
+    for(let i=0;i<4096;i++)d[i]=(Math.random()*2-1)*(1-i/4096); bs.buffer=buf; bs.connect(o);o.connect(masterGain);bs.start(t);bs.stop(t+0.3);
+  }
+  else if(kind==='shatter'){ // ハートが割れる: ガラスの破裂＋下降
+    blip(1200,0.06,'square',0.4,t); blip(820,0.08,'square',0.35,t+0.01); blip(300,0.3,'sawtooth',0.4,t+0.03);
+    const o=AC.createGain();o.gain.setValueAtTime(0.3,t);o.gain.exponentialRampToValueAtTime(0.0001,t+0.5);
+    const bs=AC.createBufferSource();const buf=AC.createBuffer(1,8192,AC.sampleRate);const d=buf.getChannelData(0);
+    for(let i=0;i<8192;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/8192,2); bs.buffer=buf; bs.connect(o);o.connect(masterGain);bs.start(t);bs.stop(t+0.5);
+  }
+  else if(kind==='boom'){ // 変身: 重く ひびく 低音「ブーン」
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(70,t); o.frequency.exponentialRampToValueAtTime(38,t+0.9);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.7,t+0.05); g.gain.exponentialRampToValueAtTime(0.0001,t+1.1);
+    o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+1.2);
+    const o2=AC.createOscillator(), g2=AC.createGain();   // うなり
+    o2.type='triangle'; o2.frequency.setValueAtTime(48,t); o2.frequency.exponentialRampToValueAtTime(30,t+0.9);
+    g2.gain.setValueAtTime(0.0001,t); g2.gain.exponentialRampToValueAtTime(0.4,t+0.06); g2.gain.exponentialRampToValueAtTime(0.0001,t+1.0);
+    o2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t+1.1);
+  }
+  else if(kind==='whoosh'){ // 変身／槍を投げる: 風切り「ぶおんっ」
+    const dur=0.55;
+    // 帯域ノイズの スウィープ（風切り）
+    const n=Math.floor(AC.sampleRate*dur), buf=AC.createBuffer(1,n,AC.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<n;i++){ const k=i/n; d[i]=(Math.random()*2-1)*Math.sin(Math.PI*k); } // 中央が ふくらむ
+    const bs=AC.createBufferSource(); bs.buffer=buf;
+    const bp=AC.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=0.7;
+    bp.frequency.setValueAtTime(180,t);
+    bp.frequency.exponentialRampToValueAtTime(950,t+0.16);
+    bp.frequency.exponentialRampToValueAtTime(110,t+dur);
+    const gN=AC.createGain();
+    gN.gain.setValueAtTime(0.0001,t); gN.gain.exponentialRampToValueAtTime(0.55,t+0.06); gN.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    bs.connect(bp); bp.connect(gN); gN.connect(masterGain); bs.start(t); bs.stop(t+dur);
+    // 低い うなり（ぶおーん）
+    const o=AC.createOscillator(), g=AC.createGain(); o.type='sawtooth';
+    o.frequency.setValueAtTime(170,t); o.frequency.exponentialRampToValueAtTime(55,t+dur);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.42,t+0.05); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+dur+0.02);
+  }
+  else if(kind==='dread'){ // 槍が あらわれる: 低音を 重ねた こわい うなり「ぶ゛ーーん」
+    const dur=1.1;
+    // 低い うなり 3層（わずかに デチューンして 濁らせ、ゆっくり 立ち上がる）
+    [39, 52, 78].forEach((f,i)=>{
+      const o=AC.createOscillator(), g=AC.createGain();
+      o.type = (i===2)?'sawtooth':'triangle';
+      o.frequency.setValueAtTime(f*(1+i*0.01), t);
+      o.frequency.linearRampToValueAtTime(f*0.82, t+dur);
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(0.42-i*0.07, t+0.30);   // じわっと 迫る
+      g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+dur+0.02);
+    });
+    // ざらついた 低ノイズ（不気味さ）
+    const n=Math.floor(AC.sampleRate*dur), buf=AC.createBuffer(1,n,AC.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<n;i++){ const k=i/n; d[i]=(Math.random()*2-1)*Math.min(1,k/0.3)*(1-k)*0.5; }
+    const bs=AC.createBufferSource(), lp=AC.createBiquadFilter(), gn=AC.createGain();
+    lp.type='lowpass'; lp.frequency.value=380; gn.gain.value=0.3;
+    bs.buffer=buf; bs.connect(lp); lp.connect(gn); gn.connect(masterGain); bs.start(t); bs.stop(t+dur);
+  }
+  else if(kind==='don'){ // みのがすに ぶつかった「ドンっ」: 太い低音の 打撃 ＋ クリック
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(190,t); o.frequency.exponentialRampToValueAtTime(42,t+0.18);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.95,t+0.005); g.gain.exponentialRampToValueAtTime(0.0001,t+0.38);
+    o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.42);
+    const o2=AC.createOscillator(), g2=AC.createGain();   // より低い 余韻
+    o2.type='triangle'; o2.frequency.setValueAtTime(95,t); o2.frequency.exponentialRampToValueAtTime(28,t+0.32);
+    g2.gain.setValueAtTime(0.0001,t); g2.gain.exponentialRampToValueAtTime(0.6,t+0.01); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.55);
+    o2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t+0.58);
+    const n=Math.floor(AC.sampleRate*0.05), buf=AC.createBuffer(1,n,AC.sampleRate), d=buf.getChannelData(0);  // アタックの クリック
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+    const bs=AC.createBufferSource(), gn=AC.createGain(); bs.buffer=buf; gn.gain.value=0.5;
+    bs.connect(gn); gn.connect(masterGain); bs.start(t); bs.stop(t+0.05);
+  }
+}
+function stopMusic(){ curTheme=null; curBgmFile=null; stopBgmSource(); }
+
+/* =======================  会話ボイス（キャラ別 テキスト効果音）  =======================
+   声優なしで「声質・性格・感情」を 短い電子音で 表現する（本家オマージュ）。
+   freq=高さ(年齢/性格), type=音色, rate=何文字ごとに 鳴らすか, vol=音量,
+   fixed=ゆらさない(几帳面/機械), wob=不安定にゆらす(不気味), slow=ゆっくり喋る
+*/
+/* 会話音(ボイスブリップ)の設計指針:
+   freq=高さ / type=波形 / rate=何文字ごとに鳴らすか(小=速い) / vol=音量 / dur=長さ
+   round=1oct下を薄く重ね 丸く太く(王・母) / noise=濁り・壊れた音(本性) /
+   fixed=ゆらさない(几帳面/機械) / wob=不安定に大きくゆらす(不気味) / slow=ゆっくり喋る  */
+const VOICES={
+  narrator:{freq:520,type:'square',rate:3,vol:0.15,dur:0.028},
+  // こわがりのホネ: 高く 細く ふるえる(緊張)
+  char_hone:{freq:900,type:'square',rate:2,vol:0.16,dur:0.024,wob:true},
+  // キラリ: 華やか・電子的・高い(ショー)
+  char_kirari:{freq:1120,type:'square',rate:2,vol:0.16,dur:0.026},
+  // ワンダ(犬): 低め・元気で硬い「ダダダ」
+  char_wanda:{freq:300,type:'square',rate:2,vol:0.18,dur:0.024},
+  // カクト: 几帳面・規則的・硬い(ゆらさない)
+  char_kakuto:{freq:340,type:'square',rate:2,vol:0.17,dur:0.026,fixed:true},
+  // 王アルゴール: 低く 丸く 重い・ゆっくり「ドゥドゥ」(やさしい王)
+  char_argor:{freq:150,type:'triangle',rate:3,vol:0.30,dur:0.05,slow:true,round:true},
+  // ケムリ(お助け役を装う): 高く 軽く かわいいが 胡散臭い「ピピピ」
+  char_smoke:{freq:1040,type:'square',rate:2,vol:0.16,dur:0.022},
+  // ケムリ本性: 低く 濁り ノイズ混じり・不規則「ギギ…ググ…」(裏返り)
+  char_smoke_big:{freq:115,type:'sawtooth',rate:2,vol:0.26,dur:0.055,wob:true,noise:true},
+  // ホムラ(やさしい母・女王): 中低音 柔らかく 包み込む「ポポポ」
+  char_homura:{freq:420,type:'triangle',rate:3,vol:0.24,dur:0.042,slow:true,round:true},
+  char_soyo:{freq:780,type:'triangle',rate:3,vol:0.15,dur:0.03},
+  char_nemu:{freq:430,type:'triangle',rate:4,vol:0.15,dur:0.038,slow:true}, // 眠い: 遅い
+  char_kasa:{freq:990,type:'square',rate:2,vol:0.15,dur:0.026},
+  char_pachi:{freq:1080,type:'square',rate:2,vol:0.16,dur:0.022},  // 元気・速い「パパパ」
+  char_shizuku:{freq:680,type:'triangle',rate:3,vol:0.15,dur:0.03},
+  char_kodama:{freq:840,type:'square',rate:2,vol:0.15,dur:0.026},
+  char_neji:{freq:360,type:'square',rate:2,vol:0.16,dur:0.028,fixed:true},  // 機械: 規則的
+  char_houki:{freq:600,type:'square',rate:3,vol:0.15,dur:0.03},
+  voice:{freq:300,type:'triangle',rate:3,vol:0.20,dur:0.04,wob:true},      // ゲームオーバーの 呼びかけ
+};
+/* いま 喋っているのは だれか → 声を 返す */
+function currentVoice(){
+  if(state===ST.ARGORCUT) return VOICES.char_argor;
+  if(state===ST.GAMEOVER) return VOICES.voice;
+  if(state===ST.CUT) return VOICES[cut.img] || VOICES.narrator; // 画像キー＝話者
+  if(dialogReturnWalk) return VOICES.narrator;                   // 探索中の地の文
+  if(enemy && VOICES[enemy.key]) return VOICES[enemy.key];       // 戦闘中は その敵の声
+  return VOICES.narrator;
+}
+function voiceBlip(v){
+  if(!AC||muted||!v||!voiceGain) return; const t=AC.currentTime;
+  let f=v.freq;
+  if(!v.fixed) f*=(0.95+Math.random()*0.1);   // 少し ゆらす（人間味）
+  if(v.wob) f*=(0.72+Math.random()*0.5);       // 不安定に 大きく ゆらす（不気味）
+  const dur=v.dur||0.03, vol=v.vol||0.12;
+  // 主音
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=v.type||'square'; o.frequency.value=f;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(vol,t+0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g); g.connect(voiceGain); o.start(t); o.stop(t+dur+0.02);
+  // 丸み: 1oct下の正弦を薄く重ね 太く まろやかに（王・母）
+  if(v.round){
+    const o2=AC.createOscillator(), g2=AC.createGain();
+    o2.type='sine'; o2.frequency.value=f*0.5;
+    g2.gain.setValueAtTime(0.0001,t);
+    g2.gain.exponentialRampToValueAtTime(vol*0.55,t+0.005);
+    g2.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o2.connect(g2); g2.connect(voiceGain); o2.start(t); o2.stop(t+dur+0.02);
+  }
+  // ノイズ: 濁った 壊れた音（本性ケムリ）
+  if(v.noise){
+    const n=Math.max(1,Math.floor(AC.sampleRate*dur));
+    const buf=AC.createBuffer(1,n,AC.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+    const bs=AC.createBufferSource(), gn=AC.createGain();
+    bs.buffer=buf; gn.gain.value=vol*0.6; bs.connect(gn); gn.connect(voiceGain);
+    bs.start(t); bs.stop(t+dur);
+  }
+}
+
+/* =======================  プレイヤー  ======================= */
+const player={name:'あなた',hp:20,maxhp:20,lv:1,exp:0,gold:0,candy:3,kills:0,spares:0};
+const flags={obeyedSmoke:false, seq:0};
+
+/* =======================  セーブ／ロード（ともしび）  ======================= */
+const SAVE_KEY='yasashii_chika_save_v2';
+/* どの ともしび で保存したか（表示用ラベル） */
+const SAVE_LABELS={room_hone:'とびらへ つづく みち', room_kirari:'だれも いない 地下劇場', room_wanda:'かぎの ない みはり小屋', plaza:'わすれられた 広場'};
+function hasSave(){ try{ return !!localStorage.getItem(SAVE_KEY); }catch(e){ return false; } }
+function readSave(){ try{ return JSON.parse(localStorage.getItem(SAVE_KEY)); }catch(e){ return null; } }
+function saveGame(){
+  try{
+    const data={ seqPos, player:{...player}, flags:{...flags}, place:curPlace||'', ts:Date.now() };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    return true;
+  }catch(e){ return false; }
+}
+function clearSave(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
+let titleSel=0;
+function titleOptions(){ return hasSave()? ['つづきから','さいしょから'] : ['はじめる']; }
+function loadGame(){
+  const d=readSave(); if(!d) return false;
+  enemies=makeEnemies(); buildStory();
+  Object.assign(player, d.player||{});
+  Object.assign(flags, d.flags||{});
+  curPlace=d.place||'';
+  seqPos=d.seqPos||0;
+  ensureAudio();
+  runSeq();
+  return true;
+}
+
+/* =======================  敵データ（物語つき）  ======================= */
+function makeEnemies(){return[
+{ key:'char_soyo', name:'そよ', maxhp:40,hp:40,atk:3, theme:'ruins',
+  desc:['そよ風が、ふわりと 形を むすんだ。','たんぽぽの わたげの ような せいが、\n ゆらゆらと ただよって いる。'],
+  check:'そよ  ── かぜに のって ただよう せい。',
+  flavor:['そよは ふわふわと ただよって いる。','そよは くるりと まわった。','どこからか、はなの においが する。',
+    'そよは じぶんの わたげを かぞえて いる。… 1, 2, たくさん。','そよが あくびを したら、ちいさな かぜが おきた。',
+    'そよは あなたの まえがみを、いたずらっぽく そっと ゆらした。'],
+  spareFlavor:['そよは もう あなたを「かぜの なかま」だと おもって いる。',
+    'そよは うれしくて まわりすぎて、ちょっと 目を まわした。',
+    'そよは あなたの まわりで、ごきげんに 8の字を えがいて いる。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'そよを みつめた。つかもうと しなければ\nおだやかに ゆれている。\n（いっしょに そよげば よさそう）'},
+    {label:'そよぐ',text:'あなたも からだを ゆらして、そよいで みた。\nそよは うれしそうに まわった。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'つかまえる',text:'そよを つかまえようと した。\nかぜが あれて、わたげが ちった……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'そよは、あなたが ながれを みだす つもりが\nないと わかった。ふわりと たかく まいあがり、\nひかりの ほうへ きえて いった。',
+  attack(b){const s=this.spareReady?0.4:1,h=this.mock>0?1.5:1;
+    if(b.t%26===0){const L=Math.random()<.5;b.bullets.push({x:L?b.box.x-8:b.box.x+b.box.w+8,y:b.box.y+15+Math.random()*(b.box.h-30),r:6,vx:(L?1:-1)*1.2*h*s,ph:Math.random()*6.28,off:true,
+      upd(){this.ph+=0.1;this.x+=this.vx;this.y+=Math.sin(this.ph)*0.9;},
+      draw(c){c.fillStyle='#fff';c.beginPath();c.arc(this.x,this.y,this.r,0,7);c.fill();c.fillStyle='#000';c.beginPath();c.arc(this.x,this.y,this.r-3,0,7);c.fill();}});}},
+  turnFrames:200},
+
+{ key:'char_nemu', name:'ネム', maxhp:45,hp:45,atk:3, theme:'ruins',
+  desc:['まるまった むしが、すやすや ねている。','ちかづくと ── ぴくっと して、\n ねぼけ眼を あけた。「……だれ?」'],
+  check:'ネム  ── いつも ねむい ねむり虫。',
+  flavor:['ネムは こっくり、こっくり して いる。','ネムは ねぼけて 弾を とばして いる。','ネムの あたまの 上で、ゆめが ぷかぷか して いる。',
+    'ネムは たった まま ねむる げいを みせた。すごい。だれも たのんで ない。','ネムの いびきが、リズムを きざんで いる。…ほぼ BGM。',
+    'ネムは ゆめの なかで、なにかと たたかって いる らしい。'],
+  spareFlavor:['ネムは あんしんしきって、あなたの かたで ねようと して いる。',
+    'ネムは「もう てきじゃ ない から……」と ねごとを いった。',
+    'ネムは こうげきする のも わすれて、すやすや して いる。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'ネムを みた。半分 ねむって いる。\n（むりに おこさず、こもりうたを\n  うたって あげれば よさそう）'},
+    {label:'こもりうた',text:'そっと こもりうたを うたった。\nネムは うとうと、しあわせそうだ。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'おこす',text:'ネムを ゆさぶって おこした。\n「……むう！」きげんが わるく なった。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'ネムは、ふかい ねむりに おちて いった。\nしあわせな ゆめでも 見て いるのか、\nちいさく わらって いる。おこさない ように とおった。',
+  attack(b){const s=this.spareReady?0.4:1,h=this.mock>0?1.4:1;
+    if(b.t%32===0){b.bullets.push({x:b.box.x+15+Math.random()*(b.box.w-30),y:b.box.y+b.box.h+8,r:7,vy:-1.0*h*s,sw:Math.random()*6.28,off:true,
+      upd(){this.sw+=0.07;this.x+=Math.sin(this.sw)*0.7;this.y+=this.vy;},
+      draw(c){c.strokeStyle='#fff';c.lineWidth=2;c.beginPath();c.arc(this.x,this.y,this.r,0,7);c.stroke();}});}},
+  turnFrames:200},
+
+{ key:'char_hone', name:'ホネくん', maxhp:60,hp:60,atk:4, theme:'hone',
+  desc:['とびらの まえに、ちいさな ホネの みはりが いる。','ホネくんは あなたを 見て とびあがった。','「ヒ、ヒトだ ── ヒトが きた……！」'],
+  check:'ホネくん  ── とびらの みはり。\n「ヒトが きたら 世界が こわれる」と\nふるえている。ほんとうは こわいだけ。',
+  flavor:['ホネくんは「こ、こないで」と あとずさった。','ホネくんの ひざが カタカタ なっている。','ホネくんは あなたの ようすを そっと うかがう。','どこかで ホネの きしむ 音が する。',
+    'ホネくんは こわすぎて、じぶんの ホネを 1本 おとした。あっ。','ホネくんは「ぼくは つよい、ぼくは つよい」と じぶんに いいきかせて いる。こえが ふるえて いる。',
+    'ホネくんは みはりの はずなのに、あなたの ほうが おちついて いる。'],
+  spareFlavor:['ホネくんは もう ふるえて いない。…すこし だけ むねを はって いる。',
+    'ホネくんは「ともだち」って ことばを、口の なかで なんども ためして いる。',
+    'ホネくんは、はじめて じぶんから 目を あわせて くれた。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'ホネくんを じっと みた。\nこわくて めを そらされた。\n（こうげき しないと しめせば\n  みちを あけて くれそうだ）'},
+    {label:'なだめる',text:'「だいじょうぶ。なにも しないよ」\nホネくんの ふるえが 少し おさまった。\n「……ヒトって、みんな こわいって\n  きいてた のに……」',effect:e=>{e.prog++;if(e.prog>=2){e.spareReady=true;}}},
+    {label:'はなしをきく',text:'ホネくんの はなしを きいた。\n「ずっと ここで、だれかが くるのを\n  まってた。こわいけど……\n  ほんとは、さびしかったんだ」',effect:e=>{e.prog++;if(e.prog>=2){e.spareReady=true;}}},
+    {label:'おどかす',text:'「ばあっ！」\nホネくんは ますます おびえた。\nやっぱり ヒトは こわい、という\n かおを している……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'ホネくんは あなたが てきで ない と わかった。\n「……きみは、こわくない んだね」\nはじめて わらって、そっと みちを あけてくれた。\n「とびらの おく、みんなに あえると いいね」',
+  attack(b){const hard=this.mock>0?1.6:1.0, soft=this.spareReady?0.4:1.0;
+    if(b.t%Math.floor(26/hard)===0){const x=b.box.x+14+Math.random()*(b.box.w-28);
+      b.bullets.push({x,y:b.box.y-10,w:8,h:18,vy:(2.0+Math.random()*0.8)*hard*soft,sway:Math.random()*6.28,
+        upd(){this.sway+=0.2;this.x+=Math.sin(this.sway)*1.1*soft;this.y+=this.vy;},
+        draw(c){c.fillStyle='#fff';c.fillRect(this.x,this.y,this.w,this.h);c.fillRect(this.x-3,this.y,this.w+6,4);c.fillRect(this.x-3,this.y+this.h-4,this.w+6,4);}});}},
+  turnFrames:240},
+
+{ key:'char_kasa', name:'カサ', maxhp:50,hp:50,atk:4, theme:'theater',
+  desc:['ぽつ、ぽつ ── どこからか あまだれ。','一本足の かさこぞうが、ぴょんぴょん\n はねながら あらわれた。「あそぼ！」'],
+  check:'カサ  ── あまやどりが だいすきな かさの せい。',
+  flavor:['カサは ぴょん、ぴょんと はねて いる。','カサは あまだれを たのしんで いる。','カサは あなたに かさを さしかけて くれた。',
+    'カサは みずたまりを 見つけて、わざと ばしゃっと はねた。','カサは あなたにも かさを かそうと して、けっきょく じぶんが ぬれて いる。',
+    'カサは ぴょんぴょん しすぎて、どっちが あたまか わからない。'],
+  spareFlavor:['カサは あなたを「あまやどりの しんゆう」に にんてい した。',
+    'カサは うれしくて、はれて いるのに かさを さして いる。',
+    'カサは あなたの となりが、いちばん いい あまやどり だと きめた。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'カサを みた。あめが すきな らしい。\n（いっしょに あまやどり すれば よさそう）'},
+    {label:'あまやどり',text:'カサの かさの 下に、いっしょに 入った。\nカサは うれしくて ぴょんぴょん はねた。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'はらいのける',text:'カサを はらいのけた。\nしゅん、と かさが しぼんだ……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'カサは、あまやどりの あいてが できて\nまんぞくした。ぴょんと はねて、\nあめの むこうへ きえて いった。',
+  attack(b){const s=this.spareReady?0.4:1,h=this.mock>0?1.5:1;
+    if(b.t%16===0){const x=b.box.x+Math.random()*b.box.w;b.bullets.push({x,y:b.box.y-8,w:4,h:12,vy:2.6*h*s,vx:0.7*(Math.random()<.5?-1:1),
+      upd(){this.x+=this.vx;this.y+=this.vy;},draw(c){c.strokeStyle='#fff';c.lineWidth=2;c.beginPath();c.moveTo(this.x,this.y);c.lineTo(this.x-this.vx*2,this.y-this.h);c.stroke();}});}},
+  turnFrames:210},
+
+{ key:'char_pachi', name:'パチ', maxhp:55,hp:55,atk:4, theme:'theater',
+  desc:['ぱちぱち、ぱちぱち。','二まいの 貝がらが、ちいさな 手で\n はくしゅ して いる。「いいぞー！」'],
+  check:'パチ  ── はくしゅが だいすきな 貝の せい。',
+  flavor:['パチは ぱちぱちと 手を たたいて いる。','パチは あなたの こうどうを たのしんで いる。','パチは「アンコール！」と さけんだ。',
+    'パチは じぶんの はくしゅに、じぶんで はくしゅして いる。','パチは あなたの たちかたに、なぜか 100てんを つけた。',
+    'パチは しずかな ばめんでも、つい てを たたいて しまう。'],
+  spareFlavor:['パチは あなたに、スタンディング オベーションを おくって いる。',
+    'パチは もう てきの ことを わすれて、アンコールを まって いる。',
+    'パチの はくしゅが、いつのまにか やさしい リズムに なって いる。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'パチを みた。はくしゅが ほしい らしい。\n（はくしゅを かえして あげよう）'},
+    {label:'はくしゅ',text:'ぱちぱちと はくしゅを かえした。\nパチは 大よろこびで とびはねた。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'とじさせる',text:'パチの 貝を とじさせた。\nパチは いじけて しまった……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'パチは、たっぷり はくしゅを もらって\nまんぞくした。ぱかっと ひらいて、\nおおきく おじぎを した。',
+  attack(b){const s=this.spareReady?0.45:1,h=this.mock>0?1.5:1;
+    if(b.t%22===0){const cx=b.box.x+b.box.w/2,cy=b.box.y+b.box.h/2;for(let i=0;i<5;i++){const a=(i/5)*6.28+b.t*0.1;
+      b.bullets.push({x:cx,y:cy,r:5,vx:Math.cos(a)*2.0*h*s,vy:Math.sin(a)*2.0*h*s,upd(){this.x+=this.vx;this.y+=this.vy;},
+        draw(c){c.fillStyle='#fff';c.beginPath();c.arc(this.x,this.y,this.r,0,7);c.fill();}});}}},
+  turnFrames:210},
+
+{ key:'char_kirari', name:'キラリ', maxhp:80,hp:80,atk:5, theme:'kirari',
+  desc:['だれも いない 客席。ぶたいの 上で','キラリが ひとり、くるくると おどっている。','「あっ ── お客さん！？ ひさしぶり だ ── ！」'],
+  check:'キラリ  ── むかしの 地下劇場の 花形。\nいまは からの 客席に むかって\nまいばん ひとりで おどっている。',
+  flavor:['キラリは とっておきの ポーズを きめた。','キラリは ちらりと あなたの 反応を うかがう。','キラリは「どう？ ねえ、見て くれてる？」','キラリの きらめきが、少し さびしげに ゆれた。',
+    'キラリは カーテンコールの れんしゅうを はじめた。…まだ おわって ない。','キラリは ポーズを きめた まま、「いま、いいかんじ だった?」と きいて くる。',
+    'キラリは あなたの まばたきの 回数まで 気にして いる。'],
+  spareFlavor:['キラリは たった ひとりの きゃくせきに むかって、さいこうの えがおを みせた。',
+    'キラリは「きょうの しゅやくは、きみだ」と、あなたに スポットを あてた。',
+    'キラリは もう こわくない。ただ、見て もらえる ことが うれしい らしい。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'キラリを じっと みた。\nうれしそうに かがやきを ました。\n（ちゃんと「見て」あげると\n  まんぞくして くれそう）'},
+    {label:'はくしゅ',text:'ぱちぱちと はくしゅした。\nキラリは とくいげに かがやいた。\n「そう！ それ！ もっと 見て！」',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'ほめる',text:'「すごく きれいな おどり だね」\nキラリの こうげきが やわらいだ。\n「……ずっと、だれかに そう\n  いって ほしかった んだ」',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'むしする',text:'わざと めを そらした。\nキラリの きらめきが しぼんで、\nこうげきが かなしく はげしくなった……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'キラリは じゅうぶんに 見て もらえた。\n「……ありがとう。ひとりの 客席でも、\n  だれか ひとり 見て くれるなら、\n  ぼくは また おどれる」\nふかぶかと おじぎを して、ぶたいを おりた。',
+  attack(b){const hard=this.mock>0?1.5:1.0, soft=this.spareReady?0.45:1.0;
+    if(b.t%Math.floor(20/hard)===0){const cx=b.box.x+b.box.w/2,cy=b.box.y+b.box.h/2;
+      const side=(b.t/Math.floor(20/hard))%4|0;let x,y;
+      if(side===0){x=b.box.x;y=b.box.y+Math.random()*b.box.h;}else if(side===1){x=b.box.x+b.box.w;y=b.box.y+Math.random()*b.box.h;}
+      else if(side===2){x=b.box.x+Math.random()*b.box.w;y=b.box.y;}else{x=b.box.x+Math.random()*b.box.w;y=b.box.y+b.box.h;}
+      const a=Math.atan2(cy-y,cx-x),sp=2.4*hard*soft;
+      b.bullets.push({x,y,r:6,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,rot:0,
+        upd(){this.x+=this.vx;this.y+=this.vy;this.rot+=0.2;},draw(c){drawStar(c,this.x,this.y,5,7,3,this.rot);}});}},
+  turnFrames:260},
+
+{ key:'char_shizuku', name:'シズク', maxhp:55,hp:55,atk:4, theme:'water',
+  desc:['天井から、しずくが ひとつ おちて、','水面に、しずかな せいが うかびあがった。','あなたの かおが、その 中に うつって いる。'],
+  check:'シズク  ── 水面に うつる、しずかな せい。',
+  flavor:['シズクは しずかに たゆたって いる。','シズクの 水面に、あなたが うつって いる。','ぴちょん、と しずくの 音が ひびいた。',
+    'シズクの 水面に、あなたの ねぐせが くっきり うつって いる。','シズクは あなたが おちつくと、すこし まんぞくげに ゆれた。',
+    'シズクは ぽちゃんと おとを たてて、「しー」と いった ような きが した。'],
+  spareFlavor:['シズクの 水面は すきとおり、おだやかな あなたが うつって いる。',
+    'シズクは あなたの こころの しずけさを、そのまま うつして いる。',
+    'シズクは もう みださない。あなたと おなじ リズムで、たゆたって いる。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'シズクを みた。あなたの 心が\nそのまま 水面に うつる らしい。\n（こころを しずめれば すきとおる）'},
+    {label:'しずまる',text:'ふかく いきを して、こころを しずめた。\nシズクの 水面が、すきとおって いく。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'かきまぜる',text:'水面を かきまぜた。\nシズクは にごって、みだれて しまった……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'シズクの 水面は、すっかり すきとおった。\nそこに うつるのは、おだやかな あなたの かお。\nシズクは しずかに、水に かえって いった。',
+  attack(b){const s=this.spareReady?0.4:1,h=this.mock>0?1.4:1;
+    if(b.t%30===0){b.bullets.push({x:b.box.x+15+Math.random()*(b.box.w-30),y:b.box.y-8,r:5,vy:1.8*h*s,
+      upd(){this.y+=this.vy;},draw(c){c.fillStyle='#fff';c.beginPath();c.moveTo(this.x,this.y-6);c.quadraticCurveTo(this.x+5,this.y+3,this.x,this.y+6);c.quadraticCurveTo(this.x-5,this.y+3,this.x,this.y-6);c.fill();}});}},
+  turnFrames:220},
+
+{ key:'char_kodama', name:'コダマ', maxhp:55,hp:55,atk:4, theme:'water',
+  desc:['「ホー」「……ホー」','こだまの ように、おなじ こえが かえって くる。','ちいさな とりの せいが、首を かしげた。'],
+  check:'コダマ  ── こえを くりかえす、こだまの とり。',
+  flavor:['コダマは あなたの こえを まねて いる。','「……ホー?」と コダマが 首を かしげた。','どこかで、おなじ こえが こだまして いる。',
+    'コダマは あなたの ためいきまで、ていねいに まねした。','コダマは じぶんの こえに じぶんで へんじを して、こんがらがって いる。',
+    'コダマは あなたの おなかの 音まで、こだまに して しまった。'],
+  spareFlavor:['コダマは あなたの やさしい こえだけを、なんども くりかえして いる。',
+    'コダマは もう てきの まねを やめて、あなたと デュエットを はじめた。',
+    'コダマの こだまが、ほらあな じゅうで にこにこ して いる ようだ。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'コダマを みた。こえを かえして\nほしそうだ。\n（こちらも こだまして あげよう）'},
+    {label:'こだまする',text:'「ホー」と こえを かえして あげた。\nコダマは うれしくて、うたいだした。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'だまらせる',text:'コダマを だまらせた。\nコダマは かなしそうに うつむいた……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'コダマは、こえを かえして もらえて\nうれしそうに うたった。その うたは、\nほらあな じゅうに、やさしく こだました。',
+  attack(b){const s=this.spareReady?0.45:1,h=this.mock>0?1.5:1;
+    if(b.t%26===0){const L=Math.random()<.5;b.bullets.push({x:L?b.box.x:b.box.x+b.box.w,y:b.box.y+10+Math.random()*(b.box.h-20),r:5,vx:(L?1:-1)*2.2*h*s,vy:0,
+      upd(){this.x+=this.vx;if(this.x<b.box.x+this.r||this.x>b.box.x+b.box.w-this.r)this.vx*=-1;},
+      draw(c){c.strokeStyle='#fff';c.lineWidth=2;c.beginPath();c.arc(this.x,this.y,this.r,0,7);c.stroke();c.beginPath();c.arc(this.x,this.y,this.r+3,0,7);c.globalAlpha=0.4;c.stroke();c.globalAlpha=1;}});}},
+  turnFrames:210},
+
+{ key:'char_wanda', name:'ワンダ', maxhp:70,hp:70,atk:4, theme:'wanda',
+  desc:['とおくで 何かが 走ってくる 音。','大きな けものが、あなたの まわりを','うれしそうに ぐるぐる まわった。「ワン！」'],
+  check:'ワンダ  ── むかし、ぬしを なくした 番犬。\n首には とびらの かぎを かけたまま、\nずっと だれかを まちつづけている。',
+  flavor:['ワンダは ボールを くわえて もってきた。','ワンダは あなたの まわりを まわっている。','ワンダは くーんと 小さく ないた。','ワンダの しっぽが とまらない。',
+    'ワンダは ボールを もってきた。…さっき なげて ない けど。','ワンダは おすわりを して、すごく ほめられ待ち を して いる。',
+    'ワンダの しっぽが、もはや プロペラ に なって いる。'],
+  spareFlavor:['ワンダは あなたの ひざで、せかいいち しあわせな かおで ねて いる。',
+    'ワンダは もう かぎを まもる のも わすれて、おなかを みせて いる。',
+    'ワンダは あなたを、あたらしい だいすきな ひと に きめた らしい。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'ワンダを みた。\nうるんだ 目で 見かえして きた。\n首の かぎが、ちゃりんと なった。\n（かまって あげれば よろこびそう）'},
+    {label:'なでる',text:'ワンダの あたまを なでた。\nうっとりして、こうげきを わすれた。\n「……こんなに なでて もらったの、\n  いつ ぶり だろう」という 目だ。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'あそぶ',text:'ボールを なげて あげた。\nワンダは おおよろこびで かけまわった。\nひとりの 時間が、ながすぎたんだ。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'むしする',text:'ワンダを むしした。\nしゅんと して、こうげきが やけに なった。\nまた ひとりに されると 思った みたいだ……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'ワンダは おなかいっぱいの あいじょうを もらった。\nまんぞくして、あなたの ひざで まるくなった。\n首から とびらの かぎを はずして、\nそっと あなたの 手に のせた。「ワフ」',
+  attack(b){const hard=this.mock>0?1.5:1.0, soft=this.spareReady?0.4:1.0;
+    if(b.t===1||(b.bullets.length<3&&b.t%40===0)){for(let i=0;i<2;i++){
+      b.bullets.push({x:b.box.x+20+Math.random()*(b.box.w-40),y:b.box.y+20+Math.random()*(b.box.h-40),r:7,
+        vx:(Math.random()<.5?-1:1)*(1.6+Math.random())*hard*soft,vy:(Math.random()<.5?-1:1)*(1.6+Math.random())*hard*soft,
+        upd(){this.x+=this.vx;this.y+=this.vy;
+          if(this.x<b.box.x+this.r){this.x=b.box.x+this.r;this.vx*=-1;}if(this.x>b.box.x+b.box.w-this.r){this.x=b.box.x+b.box.w-this.r;this.vx*=-1;}
+          if(this.y<b.box.y+this.r){this.y=b.box.y+this.r;this.vy*=-1;}if(this.y>b.box.y+b.box.h-this.r){this.y=b.box.y+b.box.h-this.r;this.vy*=-1;}},
+        draw(c){c.fillStyle='#fff';c.beginPath();c.arc(this.x,this.y,this.r,0,7);c.fill();c.fillStyle='#000';c.beginPath();c.arc(this.x,this.y,this.r-3,0,7);c.fill();c.fillStyle='#fff';c.beginPath();c.arc(this.x,this.y,2,0,7);c.fill();}});}}},
+  turnFrames:240},
+
+{ key:'char_neji', name:'ネジ', maxhp:60,hp:60,atk:5, theme:'factory',
+  desc:['カチ、カチ、カチ ── ','ぜんまいじかけの へいたいが、\n きちんと 行進して きた。「ホ、ホ、ホ」'],
+  check:'ネジ  ── ぜんまいで うごく、きまじめな 兵。',
+  flavor:['ネジは きちんと 行進して いる。','ネジの ぜんまいが、すこし ゆるんで きた。','ネジは「規律、規律」と つぶやいた。',
+    'ネジは ほこりが 1つぶ おちて いるのを 見つけて、そわそわして いる。','ネジは こうしんの ほうこうを まちがえ、かべに ぶつかって いる。',
+    'ネジは「規律」と いおうとして、ぜんまいが きれかけ「き、りつ……」と なった。'],
+  spareFlavor:['ネジは ねじが ほどよく ゆるみ、はじめて リラックスして いる。',
+    'ネジは「やすめ」の しせいを、こっそり たのしんで いる。',
+    'ネジは もう 行進を やめて、あなたに きちんと 敬礼した。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'ネジを みた。ぜんまいが ゆるむと\nふあんに なる らしい。\n（ねじを まいて あげれば あんしんする）'},
+    {label:'ねじをまく',text:'ネジの せなかの ねじを、やさしく まいた。\nネジは あんしんして、こうげきを ゆるめた。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'とめる',text:'ネジを むりやり とめようと した。\nネジは ガチガチに なって あばれた……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'ネジは、ねじを まいて もらって あんしんした。\n「……たまには、だれかに まいて もらうのも\n  わるく ない」きちんと 敬礼して、行進して いった。',
+  attack(b){const s=this.spareReady?0.5:1,h=this.mock>0?1.4:1;
+    if(b.t%34===0){const L=(b.t/34)%2===0;for(let i=0;i<3;i++){const y=b.box.y+20+i*(b.box.h-40)/2;
+      b.bullets.push({x:L?b.box.x-10:b.box.x+b.box.w+10,y,w:10,h:10,vx:(L?1:-1)*2.0*h*s,off:true,
+        upd(){this.x+=this.vx;},draw(c){c.fillStyle='#fff';c.fillRect(this.x-5,this.y-5,this.w,this.h);}});}}},
+  turnFrames:220},
+
+{ key:'char_houki', name:'ホウキ', maxhp:60,hp:60,atk:5, theme:'factory',
+  desc:['しゃっ、しゃっ ── ','ほうきの れいが、ゆかを はわいて いる。','「あっ、よごさ ないでね」と、ふりむいた。'],
+  check:'ホウキ  ── きれい ずきな、そうじの せい。',
+  flavor:['ホウキは せっせと そうじして いる。','ホウキは ちりひとつ ない ゆかを ながめた。','ホウキは「きれいは、こころを おちつかせる」と いった。',
+    'ホウキは あなたの あしあとを 見つけて、すでに はわいて いる。','ホウキは ちりひとつ ない ゆかを、もう いちど はわいて いる。ねんのため。',
+    'ホウキは「よごさ ないでね」を、もう 5かい いった。'],
+  spareFlavor:['ホウキは あなたを「そうじの あいぼう」と みとめた ようだ。',
+    'ホウキは きれいな ゆかを ながめ、こころも かるく なった と いった。',
+    'ホウキは もう おこって いない。すっきりした かおで、ひとはき した。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'ホウキを みた。そうじの じゃまを\nされたく ない らしい。\n（そうじを てつだって あげよう）'},
+    {label:'てつだう',text:'いっしょに ゆかを はわいた。\nホウキは ごきげんに なった。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'ちらかす',text:'わざと ゆかを ちらかした。\nホウキは おこって ほこりを まきあげた……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'ホウキは、そうじを てつだって もらって ごきげんだ。\n「ありがとう。きれいに なると、\n  こころも かるく なるでしょ?」\nさっと ひとはき して、すうっと きえた。',
+  attack(b){const s=this.spareReady?0.5:1,h=this.mock>0?1.5:1;
+    if(b.t%40===5){const top=Math.random()<.5;const yy=top?b.box.y+8:b.box.y+b.box.h-8;
+      for(let i=0;i<6;i++){b.bullets.push({x:b.box.x-10-i*8,y:yy,r:4,vx:3.0*h*s,vy:top?0.4:-0.4,off:true,
+        upd(){this.x+=this.vx;this.y+=this.vy;},draw(c){c.fillStyle='#fff';c.globalAlpha=0.8;c.beginPath();c.arc(this.x,this.y,this.r,0,7);c.fill();c.globalAlpha=1;}});}}},
+  turnFrames:210},
+
+{ key:'char_kakuto', name:'カクト', maxhp:150,hp:150,atk:7, boss:true, theme:'boss',
+  desc:['おそれの とびらの まえ。','きちょうめんな 番人 カクトが','きっちりと、みちを ふさいで 立っている。','「ここから さきは、とおせない」'],
+  check:'カクト  ── とびらの 番人。\n「すべてを きちんと たもたねば\n  おそれが もどって くる」と しんじ、\nみだれを ゆるさず 世界を 整えている。',
+  flavor:['カクトは あなたの たちかたを 採点している。','カクトは ずれた 弾の いちを なおしている。','カクトは「規則 ただしく いこう」と いった。','カクトの かたが、ほんの 少し ふるえた。',
+    'カクトは あなたの ハートの いちを、ミリたんいで 気にして いる。','カクトは ずれた 弾を そろえなおして、ちいさく うなずいた。「よし」',
+    'カクトは じぶんの たちいちが 3ミリ ずれて いる ことに、まだ きづいて いない。'],
+  spareFlavor:['カクトは みだれを ゆるせる ように なって、かたの ちからが ぬけた。',
+    'カクトは「少しくらい ずれても いい」と、じぶんに いいきかせて いる。',
+    'カクトは きちんと おじぎを した。…こんども、かんぺきな かくど で。'],
+  prog:0,mock:0,tidied:false,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'カクトを 観察した。\n弾の ならびが きれいに そろっている。\n気を ぬくと、すぐ なおしに いく。\n（みだれを「せいとん」して から\n  「なだめる」と よさそうだ）'},
+    {label:'せいとん',text:'ちらかった 空間を きちんと そろえた。\nカクトは「……わるく、ない」と うなずいた。\n「みだれが あると、おちつかない んだ」',effect:e=>{e.tidied=true;}},
+    {label:'なだめる',text:e=>e.tidied?'「もう じゅうぶん きちんと してるよ。\n  少しくらい みだれても、\n  だいじょうぶ」\nカクトの はりつめた かたが、ふっと ゆるんだ。':'なだめようとした。\nだが みだれが 気になって おちつかない。\n（さきに せいとんが いりそうだ）',effect:e=>{if(e.tidied){e.prog++;if(e.prog>=1)e.spareReady=true;}}},
+    {label:'ちゃかす',text:'「かたい なー」と ちゃかした。\nカクトの こうげきが きちっと はげしくなった……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'カクトは きちんと むすばれた きもちで、ふっと わらった。\n「……ありがとう。ずっと、こわかったんだ。\n  みだれる ことが。わすれられる ことが。\n  でも きみは、みだれた ぼくでも\n  見て くれた」\nれいぎ 正しく おじぎを して、\nゆっくりと、とびらに 手を かけた。',
+  attack(b){const hard=this.mock>0?1.5:1.0, soft=this.spareReady?0.45:1.0;
+    const box=b.box, phase=Math.floor(b.t/120)%3;
+    if(phase===0){
+      // ギャップ・ウォール: すきまを さがして 通りぬける（じっとして いられない）
+      if(b.t%Math.floor(36/hard)===0){
+        const fromLeft=(Math.floor(b.t/Math.floor(36/hard)))%2===0;
+        const rows=7, gap=1+Math.floor(Math.random()*(rows-3));
+        for(let i=0;i<rows;i++){ if(i>=gap&&i<gap+2) continue;
+          const y=box.y+8+i*(box.h-16)/(rows-1);
+          b.bullets.push({x:fromLeft?box.x-12:box.x+box.w+12,y,w:14,h:8,vx:(fromLeft?1:-1)*2.7*hard*soft,off:true,
+            upd(){this.x+=this.vx;},draw(c){c.fillStyle='#fff';c.fillRect(this.x,this.y-4,this.w,this.h);}});}
+      }
+    } else if(phase===1){
+      // 色つき帯（ひんぱん）＋ 落下弾の ダブル攻撃
+      if(b.t%52===5){const blue=Math.random()<0.5;
+        b.bullets.push({color:blue?'blue':'orange',life:50,big:true,box:box,
+          upd(){this.life--;},draw(c){c.globalAlpha=0.85;c.strokeStyle=this.color==='blue'?'#39f':'#f93';c.lineWidth=8;
+            const cy=box.y+box.h/2;c.strokeRect(box.x+4,cy-14,box.w-8,28);c.globalAlpha=1;}});}
+      if(b.t%Math.floor(15/hard)===0){const x=box.x+10+Math.random()*(box.w-20);
+        b.bullets.push({x,y:box.y-8,w:6,h:6,vy:2.7*hard*soft,upd(){this.y+=this.vy;},
+          draw(c){c.fillStyle='#fff';c.fillRect(this.x-3,this.y-3,6,6);}});}
+    } else {
+      // 十字スイープ: 上下左右から せまる
+      if(b.t%Math.floor(20/hard)===0){
+        const side=(Math.floor(b.t/Math.floor(20/hard)))%4;
+        if(side<2){const x=box.x+15+Math.random()*(box.w-30);
+          b.bullets.push({x,y:side===0?box.y-8:box.y+box.h+8,w:6,h:14,vy:(side===0?1:-1)*3.0*hard*soft,off:true,
+            upd(){this.y+=this.vy;},draw(c){c.fillStyle='#fff';c.fillRect(this.x-3,this.y-7,6,14);}});}
+        else {const y=box.y+15+Math.random()*(box.h-30);
+          b.bullets.push({x:side===2?box.x-8:box.x+box.w+8,y,w:14,h:6,vx:(side===2?1:-1)*3.0*hard*soft,off:true,
+            upd(){this.x+=this.vx;},draw(c){c.fillStyle='#fff';c.fillRect(this.x-7,this.y-3,14,6);}});}
+      }
+    }},
+  turnFrames:360},
+
+{ key:'char_argor', name:'灰冠の王 アルゴール', shortName:'アルゴール', maxhp:200,hp:200,atk:7, boss:true, final:true, theme:'argor',
+  desc:['灰冠の王 アルゴールが、しずかに 立っている。'],
+  check:'灰冠の王 アルゴール  ── かつて、民を まもる\nやさしい 王 だった。\nこうげき力は たかい。ぼうぎょ力も たかい。\nだが ── 槍を にぎる その 手は、ふるえている。',
+  flavor:['王は、きみの 目を 見ようと して、見られない。','火の粉が、しずかに 舞いおちる。','王の マントの すそが、こげて ゆれている。','とおくで、こわれた 鐘が、かすかに 鳴った。',
+    '王は なにか いいかけて、また 口を とじた。','はいいろの かぜが、玉座の間を しずかに とおりぬけた。','王の 槍が、ほんの 少し、おもたげに さがった。'],
+  phase:1, talkCount:0, fightConfirmed:false, mercyBroken:false, downed:false, crownFell:false, bowNext:false, dmgUp:1,
+  acts:[
+    {label:'しらべる',text:'灰冠の王 アルゴール。\nつよく、ほこり たかい 王。\n── だが、槍を にぎる 手は、ふるえている。'},
+    {label:'はなしかける',text:e=>{ e.talkCount++;
+      return e.talkCount===1 ? 'あなたは 話しかけた。\n王は、目を ふせた。\n「……もう、ことばでは もどれない」'
+        : e.talkCount===2 ? 'あなたは もう いちど 話しかけた。\n王は 口を ひらきかけ ──\nそして、槍を にぎる 手に ちからを こめた。'
+        : 'あなたの こえは、とどいている。\nそれでも 王は、じぶんを ゆるして いない。'; }},
+    {label:'おじぎ',text:'あなたは、王に ふかぶかと 頭を さげた。\n王は 一しゅん、むかしの やさしい 顔に もどった。\n「……ありがとう」つぎの こうげきが、すこし よわまる。',
+      effect:e=>{ e.bowNext=true; }},
+    {label:'おもいだす',text:'あなたは、たびで であった みんなを 思い出した。\nホネくん。キラリ。ワンダ。── みんなの 顔。\n王の 槍が、わずかに さがった。\nぼうぎょが、少し ゆるんだ。',
+      effect:e=>{ e.dmgUp=Math.min(2.0,(e.dmgUp||1)+0.35); }},
+  ],
+  attack(b){
+    const box=b.box;
+    if(b.t===1){ this._soft=this.bowNext?0.55:1; this.bowNext=false; }
+    const soft=this._soft||1;
+    const r=this.hp/this.maxhp;
+    const ph=r>0.6?1:(r>0.25?2:3); this.phase=ph;
+    // 焔の回廊
+    const fbInt=ph===1?24:(ph===2?20:16);
+    if(b.t%fbInt===0){ const L=Math.random()<.5;
+      b.bullets.push({x:L?box.x-8:box.x+box.w+8,y:box.y+12+Math.random()*(box.h-24),r:7,vx:(L?1:-1)*2.2*soft,vanish:(ph>=2&&Math.random()<0.4),off:true,
+        upd(){ this.x+=this.vx; if(this.vanish&&Math.abs(this.x-(box.x+box.w/2))<18){ this.x=-99999; } },
+        draw(c){ c.fillStyle='#fff';c.beginPath();c.arc(this.x,this.y,this.r,0,7);c.fill();c.fillStyle='#000';c.beginPath();c.arc(this.x-Math.sign(this.vx)*2,this.y,this.r-3,0,7);c.fill(); }}); }
+    // 王槍の断罪（予告→落下）
+    const spInt=ph===1?72:(ph===2?60:52);
+    if(b.t%spInt===10){ const n=ph===1?1:2;
+      for(let k=0;k<n;k++){ const cx=box.x+18+Math.random()*(box.w-36);
+        b.bullets.push({x:cx-5,y:-99999,w:10,h:24,warn:32,active:false,vy:0,off:true,cx,
+          upd(){ if(this.warn>0){ this.warn--; if(this.warn===0){ this.active=true; this.y=box.y-14; this.vy=7*soft; } } else { this.y+=this.vy; } },
+          draw(c){ if(!this.active){ c.globalAlpha=0.4;c.strokeStyle='#fff';c.lineWidth=2;c.beginPath();c.moveTo(this.cx,box.y);c.lineTo(this.cx,box.y+box.h);c.stroke();c.globalAlpha=1; }
+            else { c.fillStyle='#fff'; c.fillRect(this.x,this.y+6,this.w,this.h-6); c.beginPath();c.moveTo(this.x-1,this.y+8);c.lineTo(this.x+this.w/2,this.y-4);c.lineTo(this.x+this.w+1,this.y+8);c.closePath();c.fill(); } }}); } }
+    // 壊れた玉座（破片）ph2+
+    if(ph>=2 && b.t%26===13){ const x=box.x+10+Math.random()*(box.w-20);
+      b.bullets.push({x,y:box.y-8,r:5,vy:2.0*soft,vx:(Math.random()-0.5)*1.2,
+        upd(){ this.y+=this.vy; this.x+=this.vx; },
+        draw(c){ c.fillStyle='#fff';c.beginPath();c.moveTo(this.x,this.y-5);c.lineTo(this.x+5,this.y+4);c.lineTo(this.x-5,this.y+4);c.closePath();c.fill(); }}); }
+    // 沈黙の一撃 ph3
+    if(ph===3 && b.t%96===40){ flash=8; const yy=box.y+(Math.random()<.5?box.h*0.34:box.h*0.66);
+      b.bullets.push({x:box.x+box.w+20,y:yy-8,w:box.w+44,h:16,vx:-9*soft,off:true,
+        upd(){ this.x+=this.vx; }, draw(c){ c.fillStyle='#fff';c.fillRect(this.x,this.y,this.w,this.h); }}); }
+  },
+  turnFrames:340},
+
+{ key:'char_homura', name:'ともしびの ホムラ', maxhp:90,hp:90,atk:3, boss:true, theme:'char_homura',
+  desc:['ともしびを かかげた、やさしい おとぎ。','ホムラは、こまった ように ほほえんで、\nそっと きみの まえに 立ちふさがった。'],
+  check:'ホムラ  ── おちて きた 子を、ずっと\n見まもって きた、やさしい 保護者。\n外へ 行かせまいと して いる。\nだが その 手は、傷つける ことを ためらっている。',
+  flavor:['ホムラは「ここに いれば、安全よ」と つぶやいた。','ホムラは きみを、名前では なく「子」と よぶ。','ホムラは 何か いいかけて、口を つぐんだ。','ともしびの 火が、やさしく ゆれている。',
+    'ホムラは あなたの ぶんの おやつを、こっそり 用意して いた ようだ。','ホムラは「そんなに いそがなくても」と、やさしく ためいきを ついた。',
+    'ホムラは あなたの えりもとを、つい なおして あげようと して いる。'],
+  spareFlavor:['ホムラは もう、ひきとめる 手に ちからを こめて いない。',
+    'ホムラは なみだを こらえながら、それでも あなたに ほほえんで いる。',
+    'ホムラは「げんきで いてね」と、口の なかで なんども くりかえして いる。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'ホムラを みつめた。\nかなしげな 目で、見かえして きた。\n（あらがわず、こころを かよわせれば\n  わかって くれそうだ）'},
+    {label:'ふれあう',text:'そっと、ホムラの 手に ふれた。\nホムラの 火が、ふわりと あたたかく なった。\n「……あたたかいのね、あなたは」',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'はなしをきく',text:'ホムラの はなしを きいた。\n「むかし、たくさんの 子が、ここに おちて きた」\n「みんな、外へ 行きたがった。そして ── 」\n ホムラは、その さきを いわなかった。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'ふりほどく',text:'むりやり、よこを すりぬけようと した。\nホムラは かなしそうに、火を つよく した……。\n「……まだ、行っては だめ」',effect:e=>{e.mock++;}},
+  ],
+  spareText:'ホムラは、つよく にぎっていた 手を、そっと ひらいた。\n「……いって しまうのね。\n  みんなと、おなじ ように」\n「いいのよ。とめられないのは、しってた。\n  ただ ── げんきで いて。それだけ」\nホムラは、なみだを こらえて、やさしく わらった。\nともしびを、きみの 手に そっと もたせて、みちを あけた。',
+  attack(b){ const box=b.box; const soft=this.spareReady?0.4:1.0; const low=this.hp/this.maxhp<0.5;
+    if(b.t%22===0){
+      const ang=Math.random()*6.28, R=130, cx=box.x+box.w/2, cy=box.y+box.h/2;
+      const sx=cx+Math.cos(ang)*R, sy=cy+Math.sin(ang)*R;
+      const a2=Math.atan2(cy-sy,cx-sx), sp=1.5*soft;
+      b.bullets.push({x:sx,y:sy,r:6,vx:Math.cos(a2)*sp,vy:Math.sin(a2)*sp,off:true,
+        upd(){ if(low){ const ax=soul.x-this.x,ay=soul.y-this.y,ad=Math.hypot(ax,ay)||1;
+                 if(ad<55){ this.vx-=ax/ad*0.9; this.vy-=ay/ad*0.9; } }   // 弱ると 主人公を 避ける
+          this.x+=this.vx; this.y+=this.vy; },
+        draw(c){ c.fillStyle='#fff';c.beginPath();c.arc(this.x,this.y,this.r,0,7);c.fill();
+          c.fillStyle='#000';c.beginPath();c.arc(this.x,this.y,this.r-3,0,7);c.fill();
+          c.fillStyle='#fff';c.beginPath();c.arc(this.x,this.y,1.6,0,7);c.fill(); }});
+    }},
+  turnFrames:220},
+];}
+
+function drawStar(c,cx,cy,sp,outer,inner,rot){c.fillStyle='#fff';c.beginPath();
+  for(let i=0;i<sp*2;i++){const r=i%2===0?outer:inner,a=rot+i*Math.PI/sp,x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;i===0?c.moveTo(x,y):c.lineTo(x,y);}
+  c.closePath();c.fill();}
+
+/* =======================  シナリオ（探索 & カットシーン）  ======================= */
+/* 進行は STORY 配列（ステップ）で管理。各ステップは終了時に advance() を呼ぶ */
+let STORY=[]; let seqPos=0; let curPlace='';
+function advance(){ seqPos++; runSeq(); }
+function runSeq(){ const st=STORY[seqPos]; if(!st)return; if(st.label)curPlace=st.label; st.run(); }
+
+/* ---- カットシーン: 画像 + ナレーション ページ ---- */
+let cut={img:null, pages:[], idx:0, after:null, choice:null, dark:0.55, sprite:null};
+function cutscene(img,pages,after,opt){
+  // 1画面=最大2行に なるよう 各ページを 分割（カット枠 幅 W-80, 17px）
+  const flat=[]; for(const p of pages){ for(const q of paginate2(p, (W-80)-36, '17px "Courier New",monospace')) flat.push(q); }
+  cut.img=img; cut.pages=flat; cut.idx=0; cut.after=after||advance;
+  cut.choice=(opt&&opt.choice)||null; cut.dark=(opt&&opt.dark!=null)?opt.dark:0.55;
+  cut.sprite=(opt&&opt.sprite)||null;   // 中央に 立つ キャラ画像（任意）
+  cutText=''; cutShown=0; loadPage();
+  state=ST.CUT; clearPressed();
+}
+let cutText='',cutShown=0;
+function loadPage(){ cutText=cut.pages[cut.idx]||''; cutShown=0; }
+
+/* ---- 物語本文 ---- */
+function sceneIntro(){
+  playTheme('title');
+  cutscene('title_bg',[
+    'むかし むかし。\nまだ 空が、まよなかでも あおかった ころ。',
+    '地上と 地下は、「ひかりの かいだん」で\nつながって いた。',
+    '地上に すむ ヒトと、\n地下に すむ 「おとぎ」 ── \nゆめから うまれ、わすれものから 形を もった\n もの たちは、ともに くらして いた。',
+    'おとぎたちは、ヒトの 見た ゆめを たべ、\nかわりに、よる くらやみが こわく ない ように、\nちいさな ともしびを ともして いた。',
+    'だが ── ヒトは ふえ、いそがしく なった。\nゆめを 見る よなかも、すくなく なった。',
+    'やがて ヒトは、じぶんたちと ちがう\nおとぎを 「気もちわるい」「あぶない」と\n うわさ するように なった。',
+    'ほんとうは、ただ ちがう だけ だった。\nだが 「ちがう」は、いつの まにか「こわい」に\n すりかわって いった。',
+    'ある よる、ヒトたちは かいだんの 入り口を\n「おそれの とびら」で とじた。\nとびらには、かたく とじた 目が きざまれた。',
+    '見なければ、こわく ない。\n知らなければ、いない のと おなじ。\nそうして ヒトは、おとぎを わすれた。',
+    'とびらの 内がわに のこされた おとぎたちは、\nやがて、なぜ こわがられたのかも わすれた。',
+    'ともしびを ともす あいてを なくし、\nただ しずかに、だれかが もどって くるのを\n まちつづけて いる。',
+    'そして ── 何百年か、すぎた。',
+    'これは、ある 一人の ヒトの 子どもが、\nその とびらの むこうがわへ\n おちて しまう、ちいさな ものがたり。',
+  ], ()=>advance(), {dark:0.45});
+}
+function sceneAwaken(){
+  playTheme('explore');
+  cutscene('title_bg',[
+    '……いたい。\nつめたい 石の 上で、あなたは 目を さました。',
+    'どうして こんな ところに?\n……そうだ。草むらの あなを のぞきこんで、\n あしを すべらせた んだった。',
+    'はるか 頭上の あなから、\nほそい ひかりが ひとすじ、さしている。\nずいぶん、ふかく おちた らしい。',
+    'まわりには、ふしぎな はなが さいていた。\nふれると、ほんのり あたたかい。\nまるで、おちる あなたを うけとめる ように。',
+    'ここは、地下。\nヒトの だれも 知らない、\n わすれられた 世界の おくそこ。',
+    'かえりたい。\nでも、どうやって?',
+  ], ()=>smokeIntro(), {dark:0.4});
+}
+function smokeIntro(){
+  cutscene('char_smoke',[
+    'ふわり、と どこからか けむりが たちのぼった。\nふたつの 目が、すうっと 形を むすび、\n にやりと わらう。',
+    '「やあ！ ようこそ、おちて きた 子。\n  ぼくは ケムリ。きみの ガイド役さ。\n  こまった ことが あれば、なんでも きいて」',
+    '「こわがらなくて いいよ。\n  ぼくは とっても しんせつ なんだ。\n  この 地下の こと、ぜんぶ おしえて あげる」',
+    '「いいかい。ここは、ふつうの 世界じゃ ない。\n  であった ものから ちからを うばった 者だけが、\n  あの とびらを こえて、地上へ 帰れる」',
+    '「あつめた ちからは EXP に なる。\n  EXP が たまれば LV が あがる。\n  LV が たかいほど、つよく、帰りやすく なる」',
+    '「むずかしく ない だろ?\n  であう やつらを、ぜんぶ たおせば いい。\n  ……どうせ、もう だれにも わすれられた\n  やつら なんだから」',
+    '「あ ── そうそう。へんな うわさを きいても、\n  しんじちゃ だめだよ。\n  『だれも たおさず 帰れる みち』なんて、\n  ……そんな もの、ある わけ ないからね？」',
+  ], ()=>smokeChoice(), {dark:0.5});
+}
+function smokeChoice(){
+  cut.img='char_smoke'; cut.pages=['「さあ ── どう する?\n  ぼくの いう とおりに、する かい?」']; cut.idx=0; loadPage();
+  cut.choice={ q:'ケムリの いう とおりに する？',
+    opts:[
+      {label:'したがう', after:()=>{flags.obeyedSmoke=true; cutscene('char_smoke',[
+        '「くくっ。いい子 だ。\n  そう、それで いい。\n  ちからこそ、すべて。やさしさは、よわさだ」',
+        '「であった やつを たおすたび、\n  きみは つよく なる。\n  ……たのしみに してるよ。ずっと、見てる」',
+        'ケムリは、まんぞくげに、けむりに とけた。\nなんだか、せなかが すこし、つめたい。'],()=>advance(),{dark:0.5});}},
+      {label:'ことわる', after:()=>{flags.obeyedSmoke=false; cutscene('char_smoke',[
+        '「……へえ。うばわ ない、って?」',
+        '「だれも たおさずに、帰れる とでも?\n  やさしさ なんて、ここでは 何の 役にも\n  たたない のに」',
+        '「ふうん。……つまらない 子だな」',
+        'ケムリは、すっと 目を ほそめ、けむりに とけた。\n「ま、いいさ。きみが どう えらぼうと、\n  ぼくは ずっと、見てる だけ だよ」'],()=>advance(),{dark:0.5});}},
+    ]};
+  state=ST.CUT; clearPressed();
+}
+/* 落下地点から、最初の見張りへ ── 降りていく道 */
+function sceneDescent(){
+  playTheme('explore');
+  cutscene('title_bg',[
+    'あたたかい はなの みちを たどって、\nあなたは 地下の おくへと 歩きはじめた。',
+    'かべには、ふるい ほりものが のこっている。\nヒトと おとぎが、てを つないで\n ともしびを かかげている 絵。',
+    'その となりの 絵は ── けずられて いた。\nだれかが、見たく なくて、けずった みたいに。',
+    'とおくで、カタ、カタ、と\n ほねの きしむ ような 音が きこえる。\n だれか、いる。',
+  ], ()=>advance(), {dark:0.4});
+}
+/* ---- 探索ルーム ---- */
+function roomHone(){
+  makeWalkRoom({
+    bg:null, title:'とびらへ つづく みち',
+    npcs:[
+      {x:170,y:170,label:'はりがみ',
+       lines:['かべに、ふるい はりがみ。','『ヒトを 見たら、すぐ にげろ。\n  ヒトは 世界を こわす もの なり』','……ずいぶん こわがられて いる みたい。','でも あなたは、まだ だれも こわがらせて\n いない のに。']},
+      {x:330,y:300,label:'こけの おとぎ',
+       lines:['こけの ように 地面に へばりついた、\n ちいさな おとぎが いる。','「……ヒト? ……ほんもの?」','「ホネくんが、ずっと びくびく してた。\n  ヒトが きたら 世界が おわる、って」','「ねえ。きみは ── おわらせに きたの?」']},
+      {x:470,y:200,label:'ふるい ともしび台',
+       lines:['火の きえた、ふるい ともしび台。','むかしは ここで、ヒトの ゆめに\n あかりを ともして いた らしい。','いまは、ひとつも ともって いない。']},
+    ],
+    saveAt:{x:110,y:300},
+    exitText:'みちの さきに ── ちいさな ホネの みはりが、\nガタガタ ふるえながら 立ちふさがって いる。',
+    onExit:()=>advance(),
+  });
+}
+function afterHone(){
+  const killed=enemies[0].hp<=0;
+  if(killed){ playTheme('hollow'); cutscene('char_hone',[
+    'ホネくんは、なにも いえないまま、\nしずかに、こなごなに くずれて いった。',
+    'さいごに のこした 音は、\n「……あ」 だけ だった。',
+    'EXP が 20 入った。\nだが なぜか、むねの おくが つめたい。',
+    'みはりの いなく なった みちは、\nしんと、しずまりかえって いた。',
+    'かべの はりがみが、はらりと おちた。\n『ヒトは 世界を こわす』 ── \nその 通りに、なって しまった。'],()=>advance(),{dark:0.5}); }
+  else { playTheme('explore'); cutscene('char_hone',[
+    'ホネくんは、はじめて ともだちが\nできた みたいに、ぶんぶんと 手を ふった。',
+    '「ヒトって、こわい もの だと\n  おもってた。ずっと、ずっと」',
+    '「でも きみは、ぼくを たおさなかった。\n  ……はなしを、きいて くれた」',
+    '「とびらの おく、みんな やさしいよ。\n  ……たぶん。ぼくは でた こと ないけど」',
+    '「キラリに あったら、よろしく いって。\n  あいつ、さびしがりだから」',
+    'みちの わきで、ちいさな ほのおが ゆれている。\nさわると、こころが すっと おちつく ──「ともしび」だ。\nわすれられた 火が、ひとつ、また ともった。'],()=>advance(),{dark:0.5}); }
+}
+function roomKirari(){
+  makeWalkRoom({title:'だれも いない 地下劇場',
+    npcs:[
+      {x:200,y:170,label:'やぶれた ポスター',
+       lines:['やぶれた こうえん ポスター。','『今夜も 満員御礼 ── キラリ 大劇場』','日づけは ── ずっと、ずっと むかしの もの。','その上に、だれかが ちいさく 書いている。\n 『またね』。']},
+      {x:360,y:320,label:'からの 客席',
+       lines:['ずらりと ならんだ、からの 客席。','せきには、ひとつずつ 名ふだが ある。','どれも、もう ここには いない\n おとぎたちの 名前 だ。','キラリは ── この せきが ぜんぶ\n うまる ひを、まだ まって いる。']},
+      {x:480,y:200,label:'がくやの かがみ',
+       lines:['われた がくやの かがみ。','すみに、いりの くちべにで\n れんしゅうの あとが のこっている。','『笑え。客が ひとりでも、\n  スターは わらう もの』']},
+    ],
+    saveAt:{x:115,y:310},
+    exitText:'ぶたいの まんなか、たった ひとつの\nスポットライトの 中で ── だれかが おどっている。',
+    onExit:()=>advance()});
+}
+function afterKirari(){
+  const killed=enemies[1].hp<=0;
+  if(killed){ playTheme('hollow'); cutscene('char_kirari',[
+    'スポットライトが、じじ、と またたいて、\nふっと、きえた。',
+    'キラリは さいごまで、ポーズを くずさ なかった。\nだれかに 見て もらえる ことを、\n しんじた ままで。',
+    'EXP が 20 入った。\nもう、この ぶたいで おどる ものは いない。',
+    'からの 客席だけが、まっくらな 中に\n しんと、のこされた。',
+    'だれにも 見られない おどりは、\n はじめから なかった ことに なる のだろうか。'],()=>advance(),{dark:0.5}); }
+  else { playTheme('explore'); cutscene('char_kirari',[
+    'キラリは、あなた ひとりの ために、\nとびきりの おどりを、もう いちど みせた。',
+    'ひかりの 中で くるくると まわり、\nさいごに、ふかぶかと おじぎを した。',
+    '「客が ひとりでも、ぼくは スターさ。\n  ……でも、ほんとうは こわかった。\n  だれにも 見られなく なる ことが」',
+    '「見て くれて、ありがとう。\n  きみの ことは、ずっと わすれない」',
+    '「カクト ── とびらの 番人に あったら、\n  つたえて。『たまには みだれて いいんだよ』って」',
+    'ぶたいの そでに、ともしびが ひとつ、ともった。'],()=>advance(),{dark:0.5}); }
+}
+function roomWanda(){
+  makeWalkRoom({title:'かぎの ない みはり小屋',
+    npcs:[
+      {x:200,y:300,label:'いぬ小屋',
+       lines:['ふるい いぬ小屋。','中に、ボロボロの ボールと、\n だれかの しゃしんが おいて ある。','しゃしんには、わらった おとぎの 子と、\n まだ 子どもの ワンダが うつっている。','うらに ひとこと。『また あそぼうね』。']},
+      {x:360,y:170,label:'くさり',
+       lines:['ちぎれた、ふるい くさり。','ワンダは むかし、ここに つながれて\n とびらの かぎを まもって いた。','でも くさりは、ずっとまえに ちぎれている。','にげなかったのは ── にげる 理由が、\n なかったから だ。まつ あいてを、\n おいて いける はずが なかった。']},
+      {x:480,y:320,label:'たくさんの あしあと',
+       lines:['ゆかに、おなじ ところを\n なんども まわった あしあと。','ぐるぐる、ぐるぐる。','だれも こない みちを、\n それでも まいにち、見はりつづけた\n あしあと だ。']},
+    ],
+    saveAt:{x:115,y:185},
+    exitText:'おくから、大きな けものが かけてくる。\nしっぽを ちぎれそうな ほど ふって ── あなたを まっていた。',
+    onExit:()=>advance()});
+}
+function afterWanda(){
+  const killed=enemies[2].hp<=0;
+  if(killed){ playTheme('hollow'); cutscene('char_wanda',[
+    'ワンダは、くーん、と 一度だけ ないた。',
+    'せめる ためでは なく、\n「やっと、だれか きてくれた」と\n よろこんだ、その 声の ままで。',
+    'EXP が 20 入った。\n首の かぎが、からん、と 地に おちる。',
+    'あなたは、かぎを ひろった。\nワンダが ながい あいだ まもって いた、\n たいせつな かぎ だ。',
+    'まつ ものは、もう ── いない。'],()=>advance(),{dark:0.5}); }
+  else { playTheme('explore'); cutscene('char_wanda',[
+    'ワンダは、おなかいっぱいの あいじょうを もらって、\nあなたの ひざで、まるく なった。',
+    'ながい ながい あいだ、\nたった ひとりの 「また あそぼうね」を、\n まちつづけて いた のだろう。',
+    'ねむる まえに、ワンダは 首から\n とびらの かぎを はずして、\n そっと あなたの 手に のせた。',
+    '「ワフ」 ── \nそれは きっと、「きみに、たくす」\n という いみ だった。',
+    'これで、とびらを ひらく かぎが そろった。\nみはり小屋に、ともしびが ともる。'],()=>advance(),{dark:0.5}); }
+}
+/* ---- ケムリの幕間（選択に反応する）---- */
+function smokeInterlude(idx){
+  const killedSoFar=player.kills, sparedSoFar=player.spares;
+  const lastKilled = enemies[idx].hp<=0;
+  let pages;
+  if(idx===0){ // ホネくんの あと
+    pages = lastKilled
+      ? ['けむりが、すうっと たちのぼる。','「くくっ。やったね。ひとり、かたづけた」','「ほら、かんたんだろ? 相手は おびえて、\n  ろくに 手むかいも しなかった」','「やさしさ? あんなの、すきだらけ さ。\n  ……いい ちょうしだ。つづけな」']
+      : ['けむりが、すうっと たちのぼる。','「……みのがした? あの ホネを?」','「ふうん。はなしを きいて やった、ねえ。\n  ……やさしいね。ほんとうに」','「でも おぼえて おきな。\n  やさしさは、いつか きみを\n  おいつめる かも しれないよ」'];
+  } else if(idx===1){ // キラリの あと
+    pages = lastKilled
+      ? ['「ふたり目。なれて きた みたいだね」','「いい かおに なって きた。\n  ためらいが、きえて きてる」','「そう、それで いい。\n  なさけは、おもいだけ さ。\n  すてて しまえば、らくに なる」',
+         (killedSoFar>=2?'「……このまま いけば、\n  きみは とても、つよく なる。\n  だれも、きみを とめられない くらいに」':'')]
+      : ['「また みのがした。\n  ……きみ、ほんきで そんな やりかたで\n  帰れる と おもってる?」','「ぼくには わからないな。\n  たすけても、きみには 一円にも ならない のに」',
+         (sparedSoFar>=2?'「……でも。あいつら、\n  きみの こと、わすれない だろうね。\n  ……それが、なに かに なる とでも?」':'「ま、すきに すれば いい」')];
+  } else { // ワンダの あと（緊張が高まる）
+    if(killedSoFar>=3){ pages=['けむりが、いつもより こく、たちこめる。','「……すごいね。ぜんぶ、けした」','「もう この あたりに、いきものは いない。\n  しずかだ。きみの ための しずけさ だ」','「ねえ。ぼく、ずっと きみを 見てた。\n  ……きみ、もう ぼくと、おなじ 目を してる」','「さあ、おいで。とびらの 番人が\n  まってる。さいごの ひとり だ」']; }
+    else if(sparedSoFar>=3){ pages=['けむりが、なんだか いつもより うすい。','「……ぜんぶ、みのがしたね」','「ひとりも、たおさずに。\n  EXP も、ほとんど ない のに」','「……ぼくには、まだ わからない。\n  きみが、なにを しようと してるのか」','「でも ── すこし だけ。\n  見て いたいと、おもって しまった よ」']; }
+    else { pages=['けむりが、すうっと たちのぼる。','「たおした やつも、みのがした やつも いる、か」','「きみは、まよって いるね。\n  ……それは、よわさ? それとも」','「ま、いいさ。\n  とびらの 番人が、さいごに まってる。\n  きみが どっち なのか ── そこで わかる」']; }
+  }
+  pages = pages.filter(p=>p);
+  playTheme(killedSoFar>sparedSoFar?'hollow':'explore');
+  cutscene('char_smoke', pages, ()=>advance(), {dark:0.55});
+}
+/* ---- わすれられた 広場（ハブ）---- */
+function plazaRoom(){
+  playTheme('explore');
+  makeWalkRoom({title:'わすれられた 広場',
+    npcs:[
+      {x:160,y:170,label:'としよりの おとぎ',
+       lines:['しわくちゃの、としとった おとぎ。','「おや、ヒトの 子か。\n  ……いくさを 知らない 顔だね」','「むかし、いくさが あった。\n  ヒトと おとぎの、かなしい いくさが」','「だれが わるかった わけでも ない。\n  ただ おたがい、あいてを\n  わかろうと、しなかった だけ さ」','「とびらが しまった あの 日 ── \n  わしらは、うらむのを やめた。\n  うらんでも、さびしさは きえない からね」']},
+      {x:330,y:320,label:'おとぎの 子ども',
+       lines:['ちいさな おとぎの 子どもが、\n あなたを 見あげている。','「ねえ、きみ。地上って、どんな ところ?」','「そらって、ほんとに あるの?\n  あおくて、ひろくて、てんじょうが\n  ない って、ほんと?」','「いつか、ぼくも 見られる かな。\n  ……とびらの むこうを」']},
+      {x:480,y:180,label:'いしぶみ',
+       lines:['ふるい いしぶみ。たくさんの 名前が\n きざまれている。','『ここに、わすれられた ものたちを\n  しるす。せめて、われらは おぼえて いよう』','名前は どれも、けずれて うすく なっている。','── わすれられない ように きざんだ 名まえが、\n  わすれられて いく。それでも、だれかが\n  きざみつづけて いる。']},
+      {x:330,y:200,label:'みんなの ともしび',
+       lines:['広場の まんなかに、大きな ともしび台。','ふしぎな ことに ── ここの 火は、\n きえずに ともって いる。','「きえない ように、みんなで かわるがわる\n  まもって いる んだ」と、だれかが いった。','希望は、ひとりでは なく、\n みんなで ともす もの らしい。']},
+    ],
+    saveAt:{x:115,y:300},
+    exitText:'広場の おくに ── おそれの とびらと、\nその 番人の すがたが 見えてきた。',
+    onExit:()=>advance()});
+}
+function gateRoom(){
+  playTheme('explore');
+  cutscene('room_gate',[
+    'おそれの とびら。',
+    'とじた 目が きざまれた、\nとほうも なく 大きな 石の とびら。\n何百年も、だれにも あけられず きた。',
+    'その まえに、きちょうめんな 番人 ──\nカクトが、ひとつの みだれも なく、\n きっちりと 立って いた。',
+    '「ここから さきは、とおせない」',
+    '「この とびらが ひらけば、\n  また あの "おそれ" が もどって くる。\n  ヒトの こころに、おとぎへの おそれが」',
+    '「だから ぼくは、すべてを 整えて きた。\n  みだれを ゆるさず。きちんと、きちんと。\n  ……そうして いれば、こわく なかった から」',
+    flags.obeyedSmoke
+      ? '「……きみの 目。あの ケムリと、おなじ 目だ。\n  うばう 目。けす 目。\n  なおさら、とおす わけには いかない」'
+      : (player.kills===0
+         ? '「……きみの 目は、すこし ちがう。\n  だれも きずつけて こなかった、目だ。\n  ……だが、それでも。ぼくの やくめだ」'
+         : '「……きみの 目は、まよって いる。\n  ならば なおさら、ここで\n  たしかめ させて もらう」'),
+    '「ぼくは、とびらの 番人。\n  この おくには ── ほんとうの 王が、まって いる」',
+    '「だが、王に あう しかくが あるか ──\n  まずは ぼくが、たしかめる」',
+    'カクトとの たたかいが、はじまる。',
+  ], ()=>advance(), {dark:0.45});
+}
+
+/* ---- エンディング ---- */
+function sceneEnding(){
+  clearSave(); // クリアしたら セーブを消す（次は さいしょから）
+  const k=player.kills, s=player.spares, total=enemies.length;
+  const argorSpared = !!flags.argorSpared;               // 王を 救ったか（撃破後に てを さしのべたか）
+  const kakutoSpared = enemies[11] && enemies[11].hp>0;
+  /* ── 6つの 結末に 分岐 ── */
+  if(k===0)            endTruePacifist();                 // ① 真・やさしい
+  else if(k>=total)    endGenocide();                     // ② むなしい（全滅）
+  else if(k>=8)        endSmokeConsumed(k,s);             // ③ ケムリに のまれかけ
+  else if(!argorSpared)endKingFallen(k,s);               // ④ 王を 討った
+  else if(s>=9)        endKingSaved(k,s);                 // ⑤ 王を 救った（ほぼ平和）
+  else                 endNeutral(k,s,kakutoSpared);     // ⑥ まじりあう
+}
+function endTruePacifist(){
+  playTheme('end_true');
+  cutscene('ending_light',[
+    'アルゴールは、王冠の ない 頭で、しずかに ほほえんだ。',
+    '「きみは、わたしの ことも、ゆるして くれた。\n  もう、だれかを たおす 王で いなくて いい」',
+    '「……ありがとう、ヒトの 子よ」',
+    'あなたは、あつめた かぎを、とびらに さしこんだ。',
+    'かちり ── と、ふかい 音。\nとびらの「とじた 目」が、何百年 ぶりに、ひらいた。',
+    'とびらは 思い出して いた。\nおとぎは こわい もので なんて、なかった。\nただ、わすれられた だけ だった と。',
+    'まばゆい ひかりの かいだんが、\nやみの おくから、地上へ のびて いく。',
+    'ふりかえると ── ホネくんが、もう ふるえずに 立ち、\nキラリが からっぽ だった 客席へ おじぎを する。',
+    'もどって きた おとぎたちが、ひとり、また ひとりと、\n その 客席を、しずかに うめて いく。',
+    'ワンダが しっぽを ふって かけてきて、\nカクトが れいぎ正しく 頭を さげた。\nそして アルゴールが、みんなを 見まもって いた。',
+    'そこへ ── けむりが、すうっと たちのぼった。',
+    flags.obeyedSmoke
+      ? '「……けっきょく きみ、ひとりも たおさ なかったね。\n  ぼくの いう こと、ぜんぶ きかなかった くせに」'
+      : '「ずっと 見てたよ。きみが、ひとりも たおさないのを」',
+    '「ぼくは ね ── ヒトに わすれられた\n  『おそれ』そのもの だった のかも しれない」',
+    '「だれかが こわがる たびに、ぼくは こく なる。\n  だれかが ゆるす たびに、ぼくは うすく なる」',
+    '「きみと いて、ぼくは こんなに うすく なった。\n  ……わるく ない 気分だ」',
+    'ケムリは、はじめて やさしく わらって、\n ひかりの 中に、とけて きえた。',
+    'あなたは、かいだんを のぼる。\nLV は、1 の まま。なにも うばわず、なにも 失わ なかった。',
+    'やがて、ほおに 風が あたる。地上の、よる の におい。\nふりかえると、とびらは ── もう、とじて いない。',
+    '「つよさ」とは、たおした 数では なかった。\nそれは、だれかを わかろうと する\n こころの ことだった。',
+    '   ──── やさしい失楽園 ────\n      ~ ① 真・やさしい おわり ~',
+    'あそんで くれて、ありがとう。\n\nZ で タイトルへ',
+  ], ()=>backToTitle(), {dark:0.3});
+}
+function endGenocide(){
+  playTheme('end_dark');
+  cutscene('ending_hollow',[
+    'アルゴールも、灰に なって 風に とけた。\nきみは、ひとり のこらず けして きた。',
+    'EXP。それは きっと、あなたが あたえた\n「いたみ」の、つみかさね だった。',
+    'LV。それは こころが どれだけ\n にぶく なったかを 数える、めもり だった。',
+    'かぎは、もう いらなかった。\nあなたは ちからで、とびらを たたきこわした。',
+    'ひかりの かいだんが あらわれる。\nだが ── ふりかえっても、だれも いない。',
+    'けむりが、空を おおうほど ふくれあがり、\n無数の 目で、きみを 見おろした。',
+    '「あはははっ！ きみは、さいこうだ！\n  この 地下の "おそれ" すべてが、いま ぼくの 中に ある」',
+    '「もう きみと ぼくは、おなじ もの。\n  さあ、いっしょに 地上へ 行こう。\n  こんどは、地上を こわがらせて やろう」',
+    'まっくろな けむりが、きみの せなかに、\n ぴたりと、はりついた。',
+    '地下は、からっぽ に なった。\nもう、だれの こえも、聞こえ ない。',
+    '   ──── やさしい失楽園 ────\n      ~ ② むなしい おわり ~',
+    'たおす ことは、いつだって かんたんだった。\nもう いちど、べつの えらびを みて みたく ないか?\n\nZ で タイトルへ',
+  ], ()=>backToTitle(), {dark:0.5});
+}
+function endSmokeConsumed(k,s){
+  playTheme('end_dark');
+  cutscene('char_smoke',[
+    'たすけた もの: '+s+'たい。\nけして きた もの: '+k+'たい。',
+    'きみの 通った あとは、しんと しずまりかえって いた。',
+    'とびらの まえで、けむりが ゆらりと たちこめる。\nずいぶん こく、おもく。',
+    '「ねえ。きみ、ほとんど けして きたね」',
+    '「のこった すこしの やさしさが、\n  きみを、ぎりぎりで つなぎとめて いる」',
+    '「でも ── ぼくは もう、こんなに こい。\n  きみの 半分は、もう ぼくの ものだ」',
+    'とびらは ひらいた。けれど ひかりは、\nなぜか、いつもより うすく 見えた。',
+    'あなたは かいだんを のぼる。\nせなかに、つめたい けむりを、はりつかせた まま。',
+    '── まだ、ひきかえせる。\n  のこした やさしさが、きえて しまう まえに。',
+    '   ──── やさしい失楽園 ────\n      ~ ③ のまれかけの おわり ~',
+    'Z で タイトルへ',
+  ], ()=>backToTitle(), {dark:0.5});
+}
+function endKingFallen(k,s){
+  playTheme('end_bitter');
+  cutscene('ending_hollow',[
+    'きみは、たくさんの 相手を ゆるして きた。\nたすけた もの: '+s+'たい。',
+    'けれど ── さいごに、王を 討った。',
+    'アルゴールは、ていこう せず、灰に なった。\nその 灰は、玉座に しずかに つもった。',
+    'あなたは、あつめた かぎで、とびらを ひらく。',
+    'ひかりの かいだんが、地上へ のびて いく。\nおとぎたちは、てを ふって くれた。',
+    'だが、その 中に ── 王の すがたは、ない。',
+    'みんなを すくった きみが、\nどうして、王 だけは、ゆるせなかった のだろう。',
+    'けむりが、たちのぼる。\n「やさしい きみでも、\n  さいごの ひとりは、けして しまった」',
+    '「……きみは、わるい 子じゃ ない。\n  ただ、つかれて いた のかも しれないね」',
+    'あなたは かいだんを のぼり ながら、\n玉座の 灰を、いちどだけ ふりかえった。',
+    '   ──── やさしい失楽園 ────\n      ~ ④ 王を 討った おわり ~',
+    '王を 救う みちも、あった。\n\nZ で タイトルへ',
+  ], ()=>backToTitle(), {dark:0.45});
+}
+function endKingSaved(k,s){
+  playTheme('end_true');
+  cutscene('ending_light',[
+    'アルゴールは、王冠の ない 頭で、きみに 頭を さげた。',
+    '「きみは、まよい ながらも ── \n  さいごに、わたしの 手を、とって くれた」',
+    'たすけた もの: '+s+'たい。\nもう もどらない もの: '+k+'たい。',
+    'すくえなかった 者も いた。\nそれでも 王は、きみと ならんで、\n とびらに 手を かけた。',
+    'とびらは ひらき、ひかりの かいだんが のびて いく。',
+    'もどって きた おとぎたちの 中に、\n もう あえない 顔も、まじって いる。',
+    '王は しずかに いった。\n「すべてを すくう ことは、できなかった。\n  だが、きみは ── あきらめ なかった」',
+    '「その やさしさを、わすれては いけないよ」',
+    'けむりが、なかば すきとおった すがたで わらう。\n「ずいぶん、うすく なって しまった よ」',
+    'あなたは かいだんを のぼる。\nすくえた ぬくもりと、すくえなかった しずけさを、\n どちらも 胸に だいて。',
+    '   ──── やさしい失楽園 ────\n      ~ ⑤ 王を 救った おわり ~',
+    'もう ひとりも 失わない みちも、ある。\n\nZ で タイトルへ',
+  ], ()=>backToTitle(), {dark:0.35});
+}
+function endNeutral(k,s,kakutoSpared){
+  playTheme('end_bitter');
+  cutscene(kakutoSpared?'ending_light':'ending_hollow',[
+    kakutoSpared
+      ? 'カクトは、はりつめた かたを ゆるめ、とびらに 手を かけた。\n「……きみは、まよい ながらも、ここまで きた」'
+      : 'カクトは くずれ ながら つぶやいた。\n「きみは ── たすけた ものも、けした ものも、\n  いる んだね」',
+    'たすけた もの: '+s+'たい。\nもう もどらない もの: '+k+'たい。',
+    'とびらは、半分 だけ ── きしみ ながら、ひらいた。',
+    'ひかりの かいだんの とちゅうで、あなたは ふりかえる。',
+    'てを ふって くれる ものが いる。\nもう、てを ふれない ものも いる。',
+    'すくえた いのちは あたたかく、\nすくえなかった いのちは しずかだった。\nどちらも、ほんとうの こと だった。',
+    'けむりが たちのぼる。\n「ねえ。きみは ずっと、まよって いたね」',
+    '「たおす ことも、ゆるす ことも できた。\n  ……だから こそ、きみの えらびには、\n  いみが あった んだ」',
+    '「まよえる、って ことは ── \n  きみの こころが、まだ 生きてる って ことさ」',
+    'ケムリは ふっと わらって、うすれて いった。「またね」',
+    'つぎは ── どう、えらぶ だろうか。',
+    '   ──── やさしい失楽園 ────\n      ~ ⑥ まじりあう おわり ~',
+    'すべてを たすける みちも、ここには ある。\n\nZ で タイトルへ',
+  ], ()=>backToTitle(), {dark:0.4});
+}
+function backToTitle(){ state=ST.TITLE; playTheme('title'); clearPressed(); }
+
+/* =======================  ストーリー構築（4地方・全12戦）  ======================= */
+function smokeStage(n){
+  const k=player.kills, s=player.spares; let pages;
+  if(n===0){
+    pages = k>s
+      ? ['けむりが、すうっと たちのぼる。','「くくっ。やって きたね。\n  まち跡の やつら、よわかった だろ?」','「やさしさ? あんなの、すきだらけ さ。\n  ……いい ちょうしだ。つづけな」']
+      : ['けむりが、すうっと たちのぼる。','「……みんな、みのがしたね」','「ふうん。はなしを きいて やった、ねえ。\n  ……やさしいね。ほんとうに」','「でも おぼえて おきな。やさしさは いつか、\n  きみを おいつめる かも しれないよ」'];
+  } else if(n===1){
+    pages = k>s
+      ? ['「劇場街も、しずかに なったね」','「いい かおに なって きた。\n  ためらいが、きえて きてる」','「なさけは おもいだけ さ。\n  すてて しまえば、らくに なる」']
+      : ['「また、ぜんぶ みのがした」','「ぼくには わからないな。\n  たすけても、きみには 一円にも ならない のに」','「……でも。あいつら、きみの こと\n  ずっと わすれない だろうね」'];
+  } else if(n===2){
+    pages = k>s
+      ? ['けむりが、いつもより こく たちこめる。','「しずくの ほらあなも、からっぽ だ」','「ねえ。ぼく、ずっと きみを 見てた。\n  ……きみ、もう ぼくと、おなじ 目を してる」']
+      : ['けむりが、なんだか いつもより うすい。','「ぜんぶ、みのがしたね。\n  EXP も、ほとんど ない のに」','「……ぼくには まだ わからない。\n  でも ── すこし だけ、\n  見て いたいと、おもって しまった よ」'];
+  } else {
+    if(k>=10){ pages=['けむりが、ばける ように ふくれあがる。','「すごいね。ほとんど ぜんぶ、けした」','「もう この 地下に、いきものは すくない。\n  しずかだ。きみの ための しずけさ だ」','「さあ、おいで。とびらの 番人が まってる。\n  さいごの ひとり。\n  ……それを こえたら、ぼくの ばんだ」']; }
+    else if(k===0){ pages=['けむりが、ずいぶん うすく なって いる。','「ひとりも、たおさず ここまで……」','「ぼく、こんなに うすく なったの、\n  はじめて だ。なんだか ── こわい。\n  でも、いやじゃ ない」','「とびらの 番人が、さいごに まってる。\n  きみが ほんものか ── そこで わかる」']; }
+    else { pages=['「たおした やつも、みのがした やつも いる、か」','「きみは まよって いる。\n  ……それは よわさ? それとも」','「とびらの 番人が さいごに まってる。\n  きみが どっち なのか ── そこで わかる」']; }
+  }
+  playTheme(k>s?'hollow':'explore');
+  cutscene(n>=3?'char_smoke':'char_smoke', pages, advance, {dark:0.55});
+}
+/* 終盤: ケムリとの 対決（とびら直前） */
+function smokeFinale(){
+  const k=player.kills, s=player.spares;
+  let pages;
+  if(k===0){
+    pages=['とびらの 手前。けむりが、たかく たちこめた。','ケムリの 目が、いくつも いくつも ひらく。\nだが、その すがたは ── ずいぶん、うすい。',
+      '「……まいったよ。ぼくは ね、\n  ヒトに わすれられた "おそれ" そのもの なんだ」','「だれかが こわがる たびに、ぼくは こく なる。\n  だれかが ゆるす たびに、ぼくは うすく なる」',
+      '「きみと いて、ぼくは こんなにも うすく なった。\n  ……ありがとう。やっと、きえられる」','けむりは、おだやかに ほどけて いった。'];
+  } else if(k>=10){
+    pages=['とびらの 手前。けむりが、空を おおうほど\n ふくれあがり、無数の 目で きみを 見おろした。','「あはははっ！ きみは、さいこうだ！」','「きみが けした いのち、ぜんぶ ── \n  ぼくの 中に ある。ぼくは いま、\n  この 地下の "おそれ" すべて だ」',
+      '「もう きみと ぼくは、おなじ もの。\n  さあ、いっしょに 地上へ 行こう。\n  こんどは、地上を こわがらせて やろう」','まっくろな けむりが、きみの せなかに\n ぴたりと、はりついた。'];
+  } else {
+    pages=['とびらの 手前。けむりが、ゆらりと たちのぼる。','ケムリは、なかば すきとおり、なかば くろい。','「ねえ。きみは、ずっと まよって いたね」',
+      '「たおす ことも、ゆるす ことも できた。\n  ……だから こそ、きみの えらびには、\n  いみが あった」','「まよえる、って ことは ── \n  きみの こころが、まだ 生きてる って ことさ」','けむりは、ふっと わらって、うすれて いった。'];
+  }
+  playTheme(k>s?'smoke':'light');
+  cutscene('char_smoke', pages, advance, {dark:0.5});
+}
+/* 各地方の ボス前 紹介 */
+function bossIntroHone(){ playTheme('char_hone'); cutscene('char_hone',[
+  'まち跡の おくに、ちいさな ホネの みはりが、\nガタガタ ふるえながら 立ちふさがって いた。',
+  '「ヒ、ヒトだ ── ヒトが、きちゃった……！」',
+  '「と、とおさないぞ。ぼくが、みはりなんだ。\n  ヒトが きたら、世界が こわれるって……！」'],()=>advance(),{dark:0.5}); }
+function bossIntroKirari(){ playTheme('char_kirari'); cutscene('char_kirari',[
+  'ぶたいの まんなか、たった ひとつの\nスポットライトの 中で、だれかが おどっていた。',
+  '「あっ ── お客さん!? ほんとうに!?」',
+  '「ひさしぶり だ ── ！\n  さあ、とくべつ こうえんの はじまり だ！」'],()=>advance(),{dark:0.45}); }
+function bossIntroWanda(){ playTheme('char_wanda'); cutscene('char_wanda',[
+  'みはり小屋の おくから、大きな けものが\nかけてきた。しっぽを ちぎれそうな ほど ふって。',
+  'ワンダだ。首には、ふるい かぎを かけている。',
+  '「ワン！」── やっと だれか きてくれた、と\nいわんばかりに、あなたに とびついた。'],()=>advance(),{dark:0.45}); }
+/* 最終ステージ直前: 玉座の間への 静かな モノローグ と 王の別れ */
+function argorApproach(){
+  playTheme('argor_intro');   // 導入曲(Bergentrückung的): 旅の終わり・王の覚悟・別れ
+  cutscene('bg_throne',[
+    'カクトが あけた とびらの おくに、\nひろく しずかな 玉座の間が ひろがっていた。',
+    'われた ステンドグラスから、\nうすあかりが、ゆかに おちている。',
+    '＊（ふしぎな ひかりが、あたりに みちる）',
+    'ひとつだけ おかれた 玉座の まえに、\n大きな かげが、しずかに 立っていた。',
+  ], ()=>argorApproach2(), {dark:0.5});
+}
+function argorApproach2(){
+  // 会話シーン: 変身前の やさしい王 アルゴール を 表示する
+  playTheme('berg', false, true);   // ベルゲントリュッケン風: ループさせず 1回だけ（王の別れ）
+  cutscene('bg_throne',[
+    '灰冠の王 アルゴール。\nかつて、民を まもった やさしい 王。',
+    'その まなざしは、おどろくほど おだやかで、\nやさしかった。',
+    '「……ヒトの 子よ。\n  きみと であえて、よかった」',
+    '「すまない。きみが わるい わけでは ない。\n  だが ── わたしは、王で なければ ならない」',
+    '「さらば だ」',
+  ], ()=>argorApproach3(), {dark:0.4, sprite:'char_argor_calm'});
+}
+function argorApproach3(){
+  // 決意の くだり ── 無音で、メッセージの 流れる音(ブリップ)を 目立たせる
+  stopMusic();
+  cutscene('bg_throne',[
+    '＊（とびらの すきまから、うすあかりが みえる）',
+    '＊（ながい たびが、ついに おわりを むかえる）',
+    '＊（こころに、ともしびが ともる ──\n   けつい が、みなぎった）',
+  ], ()=>advance(), {dark:0.4, sprite:'char_argor_calm'});
+}
+/* ===== 冒頭: 偽チュートリアル → 裏切り → 救助 → 保護者 → 別れの戦い ===== */
+/* ケムリの「騙すチュートリアル」: 操作を おしえる ふりを して、
+   『ともしびの かけら』に ふれさせ ── その ひかりが きみを うつ。 */
+const tut={ orb:null };
+function smokeTutorial(){
+  playTheme('explore');
+  const moveHint = IS_TOUCH ? '下の ボックスを ゆびで なぞる' : 'やじるしキー(↑↓←→)で うごく';
+  cutscene('char_smoke',[
+    'ケムリは、にこにこと きみの まわりを まわった。',
+    '「ようこそ、ちかの せかいへ！\n  ぼくが あそびかたを おしえて あげる」',
+    '「うごきかたは、かんたん。\n  '+moveHint+' だけ だよ」',
+    '「そこに『ともしびの かけら』が あるでしょ?\n  ともだちに なる ための、しんせつな ひかり」',
+    '「さあ ── ハートを うごかして、\n  その ひかりに ふれて ごらん?」',
+  ], ()=>startSmokeTut(), {dark:0.5});
+}
+function startSmokeTut(){
+  bphase.box={x:W/2-110,y:255,w:220,h:135};
+  soul.x=bphase.box.x+26; soul.y=bphase.box.y+bphase.box.h/2; soul.invuln=0; soul.touch=false;
+  tut.orb={ x:bphase.box.x+bphase.box.w-32, base:bphase.box.y+bphase.box.h/2, y:bphase.box.y+bphase.box.h/2, ph:0, r:9, got:false };
+  state=ST.TUTORIAL; clearPressed();
+}
+function updateTutorial(){
+  const box=bphase.box, o=tut.orb; if(!o)return; const pad=6;
+  let mvx=0,mvy=0;
+  if(soul.touch){ const tx=Math.max(box.x+pad,Math.min(box.x+box.w-pad,soul.tx)), ty=Math.max(box.y+pad,Math.min(box.y+box.h-pad,soul.ty));
+    mvx=tx-soul.x; mvy=ty-soul.y; soul.x+=mvx*0.55; soul.y+=mvy*0.55; }
+  else { const sp=2.7; if(keys.left)mvx-=sp;if(keys.right)mvx+=sp;if(keys.up)mvy-=sp;if(keys.down)mvy+=sp; soul.x+=mvx; soul.y+=mvy; }
+  soul.x=Math.max(box.x+pad,Math.min(box.x+box.w-pad,soul.x));
+  soul.y=Math.max(box.y+pad,Math.min(box.y+box.h-pad,soul.y));
+  o.ph+=0.05; o.y=o.base+Math.sin(o.ph)*10;   // かけらは ふわふわ
+  const dx=soul.x-o.x, dy=soul.y-o.y;
+  if(!o.got && dx*dx+dy*dy < (o.r+7)*(o.r+7)){ o.got=true; soul.touch=false; smokeBetray2(); }  // 触れた瞬間 裏切り
+}
+function drawTutorial(){
+  drawImgCover(IMG.char_smoke, 0.6);
+  txt('* ケムリ', W/2, 26, 16, '#fff','center');
+  const b=bphase.box; ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.strokeRect(b.x,b.y,b.w,b.h);
+  // ともしびの かけら（ひかる 玉）
+  const o=tut.orb; if(o){
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    for(let i=3;i>=1;i--){ ctx.fillStyle='rgba(255,235,150,'+(0.12*i)+')'; ctx.beginPath(); ctx.arc(o.x,o.y,o.r+i*4,0,7); ctx.fill(); }
+    ctx.fillStyle='#fff6c8'; ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,7); ctx.fill(); ctx.restore();
+  }
+  drawHeart(soul.x, soul.y, '#f00', 6);
+  txt(IS_TOUCH?'ボックスを なぞって、ひかりに ふれよう':'やじるしで うごいて、ひかりに ふれよう', W/2, b.y+b.h+14, 13, '#bcbcbc','center');
+}
+function smokeBetray2(){
+  stopMusic(); se('break'); shake=22; flash=16; player.hp=Math.max(4,player.hp-8);
+  playTheme('dark');
+  cutscene('char_smoke',[
+    'バチッ！\nひかりの かけらが はじけて、きみを うった。',
+    'ケムリの 笑顔が、ぐにゃりと ゆがむ。',
+    '「あはっ。……ひっかかった ね、いい子」',
+    '「この 世界の ルールを おしえて あげる。\n  ── ころすか、ころされるか」',
+    '「やさしさ なんて、よわさ さ。\n  だまされる ほうが、わるい んだよ」',
+    'ひかりの 玉が、いくつも きみを とりかこむ ──',
+  ], ()=>homuraRescue(), {dark:0.55});
+}
+function homuraRescue(){
+  se('spare'); flash=12;
+  cutscene('char_homura',[
+    'その とき ── あたたかい 火が、\nケムリの ひかりを、ふわりと つつみこんだ。',
+    'ひかりの 玉は、しゅう、と かき消えた。',
+    'ケムリは「ちっ」と 舌うちして、けむりに とけた。',
+    'たすけて くれたのは ── ともしびを かかげた、\nやさしい おとぎ だった。',
+  ], ()=>homuraGuide(), {dark:0.45, sprite:'char_homura'});
+}
+function homuraGuide(){
+  playTheme('homura');
+  cutscene('char_homura',[
+    '「もう、だいじょうぶよ。\n  こわい 思いを させて、ごめんなさい ね」',
+    '「わたしは ホムラ。\n  この あたりの ともしびを、まもって いるの」',
+    '「あの けむりは ── 信じては だめ。\n  やさしい ふりを して、子を まどわせるの」',
+    '「さあ、こっちへ いらっしゃい。\n  あたたかい ところで、すこし 休みましょう」',
+  ], ()=>advance(), {dark:0.4, sprite:'char_homura'});
+}
+function homuraGate(){
+  playTheme('homura');
+  cutscene('char_homura',[
+    '「……ねえ。ずっと、ここに いては だめ かしら?」',
+    '「外は、あぶないの。\n  とびらの むこうには、つらい ことしか ない」',
+    '「あなたは まだ、しらなくて いいの。\n  ここに いれば、ずっと あんぜん よ」',
+    'ホムラは、しずかに みちを ふさいだ。\nやさしい 火が、かなしく ゆれている。',
+    '「ごめんね。でも ── 行かせて、あげられない」',
+  ], ()=>advance(), {dark:0.4, sprite:'char_homura'});
+}
+function afterHomura(){
+  const killed = enemies[13].hp<=0;
+  if(killed){ playTheme('hollow'); cutscene('char_homura',[
+    'ホムラの ともしびが、ふっと 消えた。',
+    'さいごまで、きみを せめなかった。\n「……げんきで、ね」',
+    'EXP が 入った。あたたかい 火が、ひとつ 消えた。',
+    'やさしかった ひとを、きみは こえて しまった。'],()=>advance(),{dark:0.5}); }
+  else { playTheme('homura'); cutscene('char_homura',[
+    'ホムラは、きみを やさしく 見おくった。',
+    '「……いつか、わたしの ことも\n  わすれて しまう のかしら」',
+    '「それでも いいの。あなたが、\n  しあわせなら ── それで」',
+    'ともしびの あかりが、きみの 行く さきを\n やわらかく てらして いる。'],()=>advance(),{dark:0.4,sprite:'char_homura'}); }
+}
+function buildStory(){
+  STORY=[];
+  const C=(label,img,pages,dark,theme)=>STORY.push({label,run:()=>{ if(theme)playTheme(theme); cutscene(img,(typeof pages==='function'?pages():pages),advance,{dark:dark==null?0.5:dark}); }});
+  const WK=(label,cfg,theme)=>STORY.push({label,run:()=>{ if(theme)playTheme(theme); const c=Object.assign({},(typeof cfg==='function'?cfg():cfg)); c.onExit=advance; makeWalkRoom(c); }});
+  const BT=(label,idx)=>STORY.push({label,run:()=>startBattle(idx)});
+  const AF=(label,idx,killed,spared,opt)=>STORY.push({label,run:()=>{ const kf=enemies[idx].hp<=0;
+    const pg=kf?(typeof killed==='function'?killed():killed):(typeof spared==='function'?spared():spared);
+    playTheme(kf?'hollow':((opt&&opt.theme)||'explore'));
+    cutscene((opt&&opt.img)||enemies[idx].key,pg,advance,{dark:(opt&&opt.dark)||0.5}); }});
+  const FN=(label,f)=>STORY.push({label,run:f});
+
+  /* ---- プロローグ ---- */
+  FN('', sceneIntro); FN('', sceneAwaken);
+  /* 冒頭の感情設計: 偽チュートリアル → 裏切り → 救助 → 保護者 → 別れの戦い */
+  FN('', smokeTutorial);                     // ケムリの 騙すチュートリアル（操作体験）→ 裏切り → ホムラ救助 → 案内
+  WK('ともしびの 家', {title:'ともしびの 家', bg:null,
+    npcs:[
+      {x:180,y:300,label:'子ども部屋',lines:['ちいさな 子ども部屋。','ベッドが、いくつも ならんで いる。','どれも、ながい あいだ つかわれて いない。','まくらもとに、ふるい くつが、そろえて ある。']},
+      {x:360,y:175,label:'だいどころ',lines:['あたたかい だいどころ。','なべには、たっぷりの スープ。','……ひとり分には、多すぎる りょう だ。','ホムラは、だれかが 帰って くるのを\n まって いる みたい。']},
+      {x:475,y:320,label:'こげた 絵',lines:['かべに かけられた、ふるい 絵。','わかい ホムラと、たくさんの 子どもたち。','子どもたちの 顔は、どれも こすれて、\n 消えかかって いる。']},
+    ],
+    saveAt:{x:120,y:200},
+    exitText:'おくの とびらの まえに、ホムラが\nかなしげに 立って いる ──'}, 'homura');
+  FN('', homuraGate);                        // 別れの 直前
+  BT('', 13);                                // ホムラ戦（別れの戦い・本心は 傷つけたくない）
+  FN('', afterHomura);                       // 見逃し / 撃破
+  FN('', sceneDescent);
+
+  /* ===== 地方1: ともしびの まち跡（ruins）===== */
+  C('', 'bg_ruins', [
+    '── ともしびの まち跡 ──',
+    'いしだたみの みちが、くずれた いえなみの\nあいだを ぬけて つづいている。',
+    'みちの りょうがわには、火の きえた\nふるい ともしび台が、ずらりと ならんでいる。',
+    'むかしは、ヒトの ゆめに あかりを ともす\n あかるい まち だった のだろう。',
+  ], 0.4, 'ruins');
+  WK('ともしびの まち跡', {title:'ともしびの まち跡', bg:'bg_ruins',
+    npcs:[
+      {x:170,y:300,label:'こけの おとぎ',lines:['こけの ように 地面に へばりついた おとぎ。','「……ヒト? ……ほんもの?」','「みんな、ヒトを こわがってる。\n  でも あんた、まだ だれも\n  こわがらせて ない じゃないか」']},
+      {x:470,y:200,label:'きえた ともしび台',lines:['火の きえた、ふるい ともしび台。','むかしは ヒトの ゆめに あかりを\n ともして いた らしい。','いまは、ひとつも ともって いない。']},
+    ], saveAt:{x:110,y:200}, exitText:'みちの さきで、そよ風が ふわりと 形を むすんだ ──'}, 'ruins');
+  BT('', 0); // そよ
+  AF('', 0, ['そよは、かぜ ごと きえて しまった。','EXP が 入った。\nあたりの 風が、ぴたりと やんだ。'], ['そよは、まいあがって きえて いった。','かぜが、やさしく ほおを なでて いく。']);
+  WK('まち跡の ろじうら', {title:'まち跡の ろじうら', bg:'bg_ruins',
+    npcs:[{x:330,y:250,label:'おちば の やま',lines:['ひとやまの おちば。','よく 見ると 葉では なく、きえた\n ともしびの しんが つもった もの だった。','だれかが、まだ かたづけて いない。']}],
+    exitText:'みちの さきで、ねむそうな むしが\nまるく なって ねむって いる ──'}, 'ruins');
+  BT('', 1); // ネム
+  AF('', 1, ['ネムは、二どと おきなく なった。','EXP が 入った。\nゆめの あぶくが、しずかに きえた。'], ['ネムは、しあわせそうに ねむって いる。','おこさない ように、そっと とおった。']);
+  WK('まち跡の おくみち', {title:'まち跡の おくみち', bg:'bg_ruins',
+    npcs:[
+      {x:200,y:180,label:'はりがみ',lines:['ふるい はりがみ。','『ヒトを 見たら にげろ。\n  ヒトは 世界を こわす もの なり』','その下に、ちいさな らくがき。\n 『でも、ともだちに なれるかも』']},
+      {x:440,y:320,label:'ホネの あしあと',lines:['行ったり きたりした、ホネの あしあと。','だれかが くるのを、ずっと\n まちわびて いた みたいだ。']},
+    ], saveAt:{x:120,y:300}, exitText:'おくに ── ガタガタ ふるえる、ちいさな みはりが いる。'}, 'ruins');
+  FN('', bossIntroHone);
+  BT('', 2); // ホネくん
+  AF('', 2, [
+    'ホネくんは、なにも いえないまま、\nしずかに こなごなに くずれた。','さいごの 音は、「……あ」 だけ だった。','EXP が 入った。むねの おくが、つめたい。'],
+    [
+    'ホネくんは、はじめて ともだちが できた\nみたいに、ぶんぶんと 手を ふった。','「ヒトって こわい もの だと おもってた。\n  でも きみは、はなしを きいて くれた」','「キラリに あったら、よろしく いって。\n  あいつ、さびしがり だから」'], {img:'char_hone'});
+  FN('', ()=>smokeStage(0));
+
+  /* ===== 地方2: こだまの 劇場街（theater）===== */
+  C('', 'title_bg', [
+    '── こだまの 劇場街 ──',
+    'くずれかけた かんばんが、ならんでいる。\nどれも、むかしの こうえんの なごり。',
+    'ぽつ、ぽつ、と どこかで あまだれの 音。\nだれも いない 客席に、こだまが ひびく。',
+  ], 0.5, 'theater');
+  WK('こだまの 劇場街', {title:'こだまの 劇場街', bg:null,
+    npcs:[
+      {x:180,y:300,label:'やぶれた ポスター',lines:['やぶれた こうえん ポスター。','『今夜も 満員御礼 ── キラリ 大劇場』','日づけは、ずっと むかしの もの。\n その上に だれかが、『またね』と。']},
+      {x:460,y:200,label:'からの 客席',lines:['ずらりと ならんだ、からの 客席。','せきには ひとつずつ、もう いない\n おとぎたちの 名ふだが ある。']},
+    ], saveAt:{x:115,y:200}, exitText:'あまだれの 中、一本足の かさこぞうが はねて きた ──'}, 'theater');
+  BT('', 3); // カサ
+  AF('', 3, ['カサは、しゅんと しぼんで きえた。','EXP が 入った。あまだれの 音が、やんだ。'], ['カサは、あまの むこうへ はねて いった。','かさの 下は、すこし あたたかかった。']);
+  WK('はいごの つうろ', {title:'はいごの つうろ', bg:null,
+    npcs:[{x:330,y:250,label:'おちた がくふ',lines:['ゆかに ちった、ふるい がくふ。','音ぷは かすれて、もう 読めない。','それでも、だれかが くちずさんで\n いた メロディの ぬくもりが のこる。']}],
+    exitText:'おくから、ぱちぱちと はくしゅの 音が\nきこえて くる ──'}, 'theater');
+  BT('', 4); // パチ
+  AF('', 4, ['パチは、貝を とじた まま うごかなく なった。','EXP が 入った。はくしゅの 音が、きえた。'], ['パチは たっぷり はくしゅを もらって、\nおおきく おじぎを して きえた。']);
+  WK('ぶたいの そで', {title:'ぶたいの そで', bg:null,
+    npcs:[
+      {x:230,y:320,label:'がくやの かがみ',lines:['われた がくやの かがみ。','すみに れんしゅうの あと。','『笑え。客が ひとりでも、\n  スターは わらう もの』']},
+      {x:450,y:180,label:'スポットライト',lines:['ほこりを かぶった、スポットライト。','まだ、ひとつ だけ ついている。','だれかが、まだ おどって いる らしい。']},
+    ], saveAt:{x:120,y:200}, exitText:'スポットライトの 中で ── だれかが、おどっている。'}, 'theater');
+  FN('', bossIntroKirari);
+  BT('', 5); // キラリ
+  AF('', 5, [
+    'スポットライトが、ふっと きえた。','キラリは さいごまで、ポーズを くずさ なかった。','EXP が 入った。からの 客席が、しんと のこる。'],
+    [
+    'キラリは、あなた ひとりの ために\nとびきりの おどりを みせ、ふかく おじぎを した。','「客が ひとりでも、ぼくは スターさ。\n  見て くれて、ありがとう」','「カクトに あったら つたえて。\n  『たまには みだれて いいんだよ』って」'], {img:'char_kirari'});
+  FN('', ()=>smokeStage(1));
+
+  /* ===== 地方3: しずくの ほらあな（water）===== */
+  C('', 'bg_water', [
+    '── しずくの ほらあな ──',
+    'ぴちょん、ぴちょん、と しずくの 音が\nほらあな じゅうに、やさしく こだまする。',
+    'すきとおった 水面が、あなたの すがたを\nそのまま、しずかに うつしだす。',
+    'ここでは ── じぶんの こころが、\nそのまま 見えて しまう らしい。',
+  ], 0.4, 'water');
+  WK('しずくの ほらあな', {title:'しずくの ほらあな', bg:'bg_water',
+    npcs:[
+      {x:190,y:320,label:'いわの ほりもの',lines:['いわに きざまれた、ふるい ことば。','『水は、せめない。\n  ただ、うつす だけ』','『にごるのは、いつも こちらの こころ』']},
+      {x:460,y:200,label:'たまった しずく',lines:['ちいさな 水たまり。','のぞきこむと、あなたの かおが うつる。','……どんな かお を して、ここまで\n きた のだろう。']},
+    ], saveAt:{x:115,y:190}, exitText:'水面から、しずかな せいが うかびあがった ──'}, 'water');
+  BT('', 6); // シズク
+  AF('', 6, ['シズクは、にごった まま はじけて きえた。','EXP が 入った。水面が、くらく しずまる。'], ['シズクの 水面は すきとおり、\nおだやかな あなたが うつって いた。']);
+  WK('しずくの わたり', {title:'しずくの わたり', bg:'bg_water',
+    npcs:[{x:330,y:250,label:'とびいし',lines:['水を わたる、ならんだ とびいし。','ひとつ ひとつ、ふむ たびに\n 水の おとが、こだまする。','「ホー」── どこかで、こえが かえった。']}],
+    exitText:'おくで、おなじ こえが なんども\nこだまして いる ──'}, 'water');
+  BT('', 7); // コダマ
+  AF('', 7, ['コダマは、二どと こえを かえさなく なった。','EXP が 入った。ほらあなが、しんと 静まる。'], ['コダマは うれしそうに うたい、\nその こえは ほらあな じゅうに こだました。']);
+  WK('しずくの おくみち', {title:'しずくの おくみち', bg:'bg_water',
+    npcs:[
+      {x:230,y:300,label:'ふるい いぬ小屋',lines:['ふるい いぬ小屋。','中に ボロボロの ボールと、しゃしん。','わらった おとぎの 子と、子どもの ワンダ。','うらに ── 『また あそぼうね』。']},
+      {x:450,y:190,label:'ちぎれた くさり',lines:['ちぎれた、ふるい くさり。','ワンダは にげられた のに、にげなかった。','まつ あいてを、おいて いける はずが\n なかったんだ。']},
+    ], saveAt:{x:120,y:300}, exitText:'おくから、大きな けものが かけて くる ──'}, 'water');
+  FN('', bossIntroWanda);
+  BT('', 8); // ワンダ
+  AF('', 8, [
+    'ワンダは、くーん、と 一度だけ ないた。','「やっと、だれか きてくれた」と\n よろこんだ、その 声の ままで。','EXP が 入った。首の かぎが、地に おちた。','あなたは、かぎを ひろった。'],
+    [
+    'ワンダは、おなかいっぱいの あいじょうを もらって、\nあなたの ひざで まるく なった。','ねむる まえに、首から とびらの かぎを はずし、\nそっと あなたの 手に のせた。','「ワフ」── それは「きみに、たくす」だった。'], {img:'char_wanda'});
+  FN('', ()=>smokeStage(2));
+
+  /* ===== 地方4: はぐるまの こうじょう（factory）===== */
+  C('', 'bg_factory', [
+    '── はぐるまの こうじょう ──',
+    'ギ、ギ、ギ ── 大きな 歯車が、\nいまも きちんと、まわりつづけている。',
+    'すべてが、ぴったりと かみあって いる。\nひとつでも みだれれば、すべてが くるう。',
+    'この おくに ── とびらの 番人が いる。',
+  ], 0.4, 'factory');
+  WK('はぐるまの こうじょう', {title:'はぐるまの こうじょう', bg:'bg_factory',
+    npcs:[
+      {x:200,y:300,label:'けいじばん',lines:['きちんと した けいじばん。','『一、みだれを ゆるすな。\n  二、おそれを 入れるな。\n  三、すべてを、きちんと たもて』','番人 カクトの、おきて らしい。']},
+      {x:460,y:200,label:'とまった 大時計',lines:['大きな 時計。はりは、とまっている。','とびらが しまった、あの 日の\n 時こくの まま だ。','じかんは、ここで とまって いる。']},
+    ], saveAt:{x:115,y:190}, exitText:'歯車の あいだから、ぜんまいじかけの 兵が 行進して きた ──'}, 'factory');
+  BT('', 9); // ネジ
+  AF('', 9, ['ネジは、ぜんまいが きれて、とまった。','EXP が 入った。行進の 音が、やんだ。'], ['ネジは、ねじを まいて もらって あんしんし、\nきちんと 敬礼して 行進して いった。']);
+  WK('ベルトコンベア', {title:'ベルトコンベア', bg:'bg_factory',
+    npcs:[{x:330,y:250,label:'ながれる ぶひん',lines:['ベルトの 上を、ぶひんが ながれて いく。','どれも、きっちりと そろえられて いる。','ひとつ だけ ずれた ぶひんを、\n だれかが すぐ なおして いった。']}],
+    exitText:'しゃっ、しゃっ ── ゆかを はわく\n音が、ちかづいて くる ──'}, 'factory');
+  BT('', 10); // ホウキ
+  AF('', 10, ['ホウキは、ほこりに かえって きえた。','EXP が 入った。ゆかに、ほこりが つもる。'], ['ホウキは、そうじを てつだって もらって\nごきげんに、すうっと きえた。']);
+  FN('', ()=>smokeStage(3));
+
+  /* ===== 終盤: 広場 → とびら → カクト → ケムリ → 結末 ===== */
+  FN('わすれられた 広場', plazaRoom);
+  FN('', gateRoom);
+  BT('', 11); // カクト
+  /* ===== 最終ステージ: とびらの おく → 玉座の間 ── 灰冠の王 アルゴール ===== */
+  C('', 'room_gate', [
+    'カクトが しずかに みちを あけた。',
+    '「……この おくに、王が いる。\n  きみが えらんだ みちを、\n  さいごまで、見とどけて おいで」',
+    'おそれの とびらが、ゆっくりと ひらいて いく。\nその むこうに ── ひろい 玉座の間が 見えた。',
+  ], 0.45, 'argor_sad');
+  WK('玉座の間の てまえ', {title:'玉座の間の てまえ', bg:'bg_throne',
+    npcs:[
+      {x:200,y:300,label:'ふるい かべ画',lines:['玉座の間の かべに、大きな かべ画。','わかい 王が、たくさんの おとぎたちと、\n わらって いる 絵。','いまの 王の、さびしい 立ち姿とは、\n まるで べつの 人 みたいだ。']},
+      {x:460,y:200,label:'おちた 王冠の あと',lines:['ゆかに、王冠の 形に やけた あと。','なんども、王冠を おろしては、\n また かぶり なおした あと だろうか。','王で いる ことは、おもい のかも しれない。']},
+    ],
+    saveAt:{x:120,y:200},
+    exitText:'おくの 玉座に、大きな かげが 立っている。\nここから さきは ── もう、もどれない。\n（ともしびで ほぞん して おこう）'}, 'argor_sad');
+  FN('玉座の 間', argorApproach);
+  BT('', 12); // アルゴール（最終ボス）
+  FN('', smokeFinale);
+  FN('', sceneEnding);
+}
+
+/* =======================  探索（ウォーク）ルーム  ======================= */
+const room={cfg:null, px:60, py:240, anim:0, near:null};
+function makeWalkRoom(cfg){
+  room.cfg=cfg; room.px=60; room.py=240; room.anim=0; room.near=null;
+  room.saved=false;
+  state=ST.WALK; clearPressed();
+  // ルームに入った時のタイトル表示
+  roomBanner=cfg.title||''; roomBannerT=160;
+}
+let roomBanner='',roomBannerT=0;
+function updateWalk(){
+  const c=room.cfg; if(!c)return;
+  const sp=3; let mvx=0,mvy=0;
+  if(keys.left)mvx-=sp; if(keys.right)mvx+=sp; if(keys.up)mvy-=sp; if(keys.down)mvy+=sp;
+  room.px+=mvx; room.py+=mvy;
+  room.px=Math.max(40,Math.min(W-40,room.px)); room.py=Math.max(120,Math.min(H-90,room.py));
+  if(mvx||mvy) room.anim+=0.2;
+  if(roomBannerT>0)roomBannerT--;
+  // 近接判定
+  room.near=null;
+  for(const n of c.npcs||[]){ if(Math.hypot(room.px-n.x,room.py-n.y)<46){ room.near={type:'npc',obj:n}; } }
+  if(c.saveAt && Math.hypot(room.px-c.saveAt.x,room.py-c.saveAt.y)<46){ room.near={type:'save'}; }
+  // 出口（右はし）
+  const exitX=W-50;
+  if(room.px>exitX-10){ room.near={type:'exit'}; }
+  if(consume('confirm') && room.near){
+    if(room.near.type==='npc'){ se('confirm'); say(splitLines(room.near.obj.lines.join('\n')),()=>{state=ST.WALK;clearPressed();},true); }
+    else if(room.near.type==='save'){ se('save'); doSave(); }
+    else if(room.near.type==='exit'){ se('confirm'); const ex=c.onExit;
+      if(c.exitText){ say(splitLines(c.exitText),()=>{ ex&&ex(); },true); } else { ex&&ex(); } }
+  }
+}
+function doSave(){
+  player.hp=player.maxhp;
+  const okSave=saveGame();
+  const msg = okSave
+    ? ['ともしびに ふれた。','けつい が、こころに ともる。','(HPが かいふくした。\n ここまでの すすみを ほぞんした。\n つぎに ひらいた とき「つづきから」\n えらべる)']
+    : ['ともしびに ふれた。','けつい が、こころに ともる。','(HPは かいふくしたが、\n この ブラウザでは ほぞんが\n できなかった……)'];
+  say(msg,()=>{state=ST.WALK;clearPressed();},true);
+}
+function drawWalk(){
+  const c=room.cfg;
+  // 背景
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  if(c.bg && IMG[c.bg]) drawImgCover(IMG[c.bg], 0.72);
+  // ゆかの格子（地下っぽさ）
+  ctx.strokeStyle=c.bg?'#1a1a1a':'#0d0d0d'; ctx.lineWidth=1;
+  for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,110);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=110;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  ctx.strokeStyle='#222'; ctx.lineWidth=2; ctx.strokeRect(20,108,W-40,H-118);
+  // 出口の矢印
+  ctx.fillStyle=(room.near&&room.near.type==='exit')?'#ff3':'#555';
+  txt('▶',W-40,H/2-20,28,(room.near&&room.near.type==='exit')?'#ff3':'#555','center');
+  txt('みち',W-40,H/2+12,12,'#555','center');
+  // NPC
+  for(const n of c.npcs||[]){
+    ctx.fillStyle='#888'; ctx.fillRect(n.x-12,n.y-16,24,30);
+    ctx.fillStyle='#bbb'; ctx.fillRect(n.x-10,n.y-14,20,10);
+    txt(n.label,n.x,n.y+18,11,(room.near&&room.near.obj===n)?'#ff3':'#888','center');
+  }
+  // セーブポイント（ともしび）
+  if(c.saveAt){ const f=c.saveAt; const fl=Math.sin(Date.now()*0.01)*3;
+    ctx.fillStyle=(room.near&&room.near.type==='save')?'#ff6':'#fc3';
+    ctx.beginPath(); ctx.ellipse(f.x,f.y+fl,7,12,0,0,7); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(f.x,f.y+4+fl,3,6,0,0,7); ctx.fill();
+    txt('ともしび',f.x,f.y+22,11,(room.near&&room.near.type==='save')?'#ff6':'#a80','center'); }
+  // プレイヤー（ハート）
+  const bob=Math.sin(room.anim)*2;
+  drawHeart(room.px,room.py+bob,'#f00',7);
+  // 操作ヒント
+  if(room.near){ const m=room.near.type==='exit'?'すすむ':room.near.type==='save'?'ともしびに ふれる':'しらべる';
+    txt('Z: '+m,room.px,room.py-26,12,'#ff3','center'); }
+  // バナー
+  if(roomBannerT>0){ ctx.globalAlpha=Math.min(1,roomBannerT/40); txt('── '+roomBanner+' ──',W/2,60,20,'#fff','center'); ctx.globalAlpha=1; }
+  // 下部ヒント
+  txt('↑↓←→ あるく   Z しらべる/すすむ',W/2,H-24,12,'#555','center');
+}
+
+/* =======================  戦闘  ======================= */
+let enemies=[],eIndex=0,enemy=null;
+const ST={TITLE:'title',CUT:'cut',WALK:'walk',MENU:'menu',SUB:'sub',FIGHTBAR:'fightbar',DIALOG:'dialog',ENEMY:'enemy',RESULT:'result',GAMEOVER:'gameover',ARGORCUT:'argorcut',TUTORIAL:'tutorial'};
+let state=ST.TITLE;
+let menuIndex=0; const MENU=['たたかう','こうどう','どうぐ','みのがす'];
+let subType='',subIndex=0,subOptions=[];
+let dialogLines=[],dialogText='',dialogShown=0,dialogTimer=0,afterDialog=null,dialogReturnWalk=false;
+const bphase={active:false,t:0,frames:0,bullets:[],box:{x:0,y:0,w:0,h:0}};
+const soul={x:0,y:0,invuln:0,tx:0,ty:0,touch:false};
+let shake=0,flash=0,fightHitFlash=0,fightBarX=0,fightBarDir=1,fightBarLock=-1,resultTimer=0,resultNext=null;
+/* 行動選択中ずっと 戦闘ボックスに のこす「いまの 状況・表情」テキスト。
+   戦闘に入った とき と 毎ターン 必ず 更新し、メニュー表示中に 見えつづける。 */
+let battleMsg='';
+function battleStatus(e){
+  if(!e) return '';
+  const pick=a=>(a&&a.length)? a[(Math.random()*a.length)|0] : null;
+  // みのがせる ように なったら、ひらいた こころ（キャラ別・ユーモアつき）を 見せる
+  if(e.spareReady){
+    const sf=pick(e.spareFlavor);
+    if(sf) return sf;
+    if(!e.boss) return e.name+'は、すっかり こころを ひらいて いる。';
+  }
+  return pick(e.flavor) || (e.name+'が、こちらを じっと 見て いる。');
+}
+
+/* テキストを「1画面=最大2行」に 分割する（読みやすさ最優先）。
+   ctx.measureText で 実際の 折り返しを 計算し、先頭の「* 」ぶんの 余白も 確保する。 */
+function wrapToLines(text, maxw, font){
+  ctx.save(); ctx.font=font;
+  const room=maxw-ctx.measureText('* ').width;   // 各行 先頭の「* 」/インデントぶん
+  const lines=[];
+  for(const seg of String(text).split('\n')){
+    let line='';
+    for(const ch of seg){ const t=line+ch;
+      if(line && ctx.measureText(t).width>room){ lines.push(line); line=ch; } else line=t; }
+    lines.push(line);
+  }
+  ctx.restore();
+  return lines;
+}
+function paginate2(text, maxw, font){
+  const lines=wrapToLines(text, maxw, font), pages=[];
+  for(let i=0;i<lines.length;i+=2) pages.push(lines.slice(i,i+2).join('\n'));
+  return pages.length?pages:[''];
+}
+function say(lines,after,fromWalk){
+  dialogReturnWalk=!!fromWalk;
+  const arr=Array.isArray(lines)?lines:[lines];
+  const maxw = fromWalk ? (W-80-32) : (220-24);
+  const font = fromWalk ? '16px "Courier New",monospace' : '15px "Courier New",monospace';
+  const pages=[];
+  for(const ln of arr){ for(const pg of paginate2(ln, maxw, font)) pages.push(pg); }   // 各行を 2行ページに
+  dialogLines=pages;
+  nextDialog(after);
+}
+function nextDialog(after){
+  if(dialogLines.length===0){ if(after)after(); else toMenu(); return; }
+  dialogText=dialogLines.shift(); dialogShown=0; dialogTimer=0;
+  afterDialog=(dialogLines.length>0)?()=>nextDialog(after):(after||toMenu);
+  state=ST.DIALOG;
+}
+function splitLines(t){return t.split('\n');}
+function toMenu(){ if(enemy&&enemy.hp<=0)return; state=ST.MENU; menuIndex=0; clearPressed(); }
+
+function startBattle(i){
+  eIndex=i; enemy=enemies[i];
+  bphase.box={x:W/2-110,y:255,w:220,h:135};
+  // 戦闘に入った 状況（〇〇が 〇〇で あらわれた）を、行動選択中も ボックスに のこす
+  battleMsg=battleStatus(enemy);
+  if(enemy.final){ stopMusic(); say(enemy.desc, ()=>argorBreakMercy()); } // 王の登場〜破壊まで 無音（効果音だけ）。本戦曲は 破壊“後”に
+  else { playTheme(enemy.key); say(enemy.desc, ()=>toMenu()); }  // モンスター別の 戦闘曲(enemy.key)
+}
+/* =======================  アルゴール: MERCY破壊カットシーン  =======================
+   「予兆 → 構え → 暗転 → 槍落下 → 白フラッシュ → 画面揺れ → 破壊 → 沈黙 → 再開」
+   を 約9秒の タイムラインで 演出する（canvas上）。Z で スキップ可。
+*/
+const argorCut={ t:0, line:'', shards:[], spearY:-60, camZoom:0, dark:0, broke:false, done:false, battleStarted:false, transformed:false };
+// タイムライン（フレーム / 60fps）
+const ACUT={
+  PRE:0,         // 静けさ「……」(変身前の やさしい王)
+  CALM:60,       // やさしい王、目を ふせる
+  TRANSFORM:200, // ★変身（やさしい王 → 赤い槍を 持つ いくさの王・ぶおんっ）
+  RISE:248,      // 大きな赤い槍が、ゆっくり 宙に あらわれはじめる（ぶおんっ）
+  RISETOP:336,   // 槍が うかびあがり、ぴたりと とまる（＝認知できる 間）
+  THRUST:392,    // 槍を 一気に つきおろす（ぶおんっ）── 短く 勢いよく
+  IMPACT:404,    // 命中：みのがす 破壊（破砕音・閃光・衝撃波・破片）／ここから 無音
+  MUSIC:594,     // 無音の 2行ダイアログの あと、ラストバトルBGM
+  END:686        // 終了 → メニュー
+};
+function argorBreakMercy(){ startArgorCut(); }
+function startArgorCut(){
+  argorCut.t=0; argorCut.line='……'; argorCut.shards=[]; argorCut.spearY=-220;
+  argorCut.camZoom=0; argorCut.dark=0; argorCut.broke=false; argorCut.done=false; argorCut.battleStarted=false;
+  argorCut.transformed=false; argorCut.risen=false; argorCut.threw=false; argorCut.burst=0;
+  state=ST.ARGORCUT; clearPressed();
+}
+function spawnMercyShards(){
+  // MERCYボタンの 位置から 破片を 散らす
+  const mx=40+3*145, my=H-70; // drawMenu の 4つ目スロット 左上
+  const cx=mx+65, cy=my+20;
+  argorCut.shards=[];
+  for(let i=0;i<18;i++){
+    const a=Math.random()*Math.PI*2, sp=2.5+Math.random()*5;
+    argorCut.shards.push({ x:cx+(Math.random()-0.5)*70, y:cy+(Math.random()-0.5)*18,
+      vx:Math.cos(a)*sp, vy:Math.sin(a)*sp-2.5, rot:Math.random()*6.28, vr:(Math.random()-0.5)*0.5,
+      sz:3+Math.random()*5, life:1 });
+  }
+}
+function updateArgorCut(){
+  const c=argorCut; c.t++;
+  // ※ このシーンは スキップ不可（破壊が とばされて バグる のを ふせぐ）
+  consume('confirm'); consume('cancel'); // 入力は すべて 無効化
+  const HOVER=250, STAB=H-70;   // 槍が うかぶ 高さ / みのがす に 刺さる 高さ
+  // 変身: やさしい王 → 赤い槍を 持つ いくさの王（一度だけ・低音＋ぶおんっ）
+  if(c.t>=ACUT.TRANSFORM && !c.transformed){ c.transformed=true; se('boom'); se('whoosh'); shake=18; flash=12; }
+  // 槍が あらわれはじめる 瞬間（一度だけ・低音を重ねた こわい うなり）
+  if(c.t>=ACUT.RISE && !c.risen){ c.risen=true; se('dread'); }
+  // 槍を つきおろす 瞬間（一度だけ・ぶおんっ・勢いよく）
+  if(c.t>=ACUT.THRUST && !c.threw){ c.threw=true; se('whoosh'); shake=16; }
+  // フェーズ別の セリフ・カメラ・槍の位置
+  if(c.t<ACUT.CALM){ c.line='……'; c.dark=0; c.camZoom=0; }
+  else if(c.t<ACUT.TRANSFORM){ c.line='王は、しずかに 目を ふせた。\n── けつい が、つたわって くる。'; c.dark=0; c.camZoom=0; }
+  else if(c.t<ACUT.RISE){ c.line='王は、いくさの\n すがたへ かわった。';
+    c.dark=Math.min(0.18,(c.t-ACUT.TRANSFORM)/50); c.camZoom=0; }
+  else if(c.t<ACUT.RISETOP){ // 槍が ゆっくり 宙に あらわれる（認知できる ように）
+    c.line='赤い 槍が、しずかに\n 宙へ あらわれる ──';
+    const p=(c.t-ACUT.RISE)/(ACUT.RISETOP-ACUT.RISE);
+    c.spearY = -220 + p*(HOVER-(-220));   // 上から ゆっくり おりてきて、高く うかぶ
+    c.dark=0.2; c.camZoom=Math.min(0.05,(c.t-ACUT.RISE)/700);
+  }
+  else if(c.t<ACUT.THRUST){ // ぴたりと とまって ねらう（間）
+    c.line='切っ先が、みのがす を\n まっすぐ ねらって いる ──';
+    c.spearY = HOVER + Math.sin(c.t*0.3)*2; c.dark=0.28; c.camZoom=0.05;
+  }
+  else if(c.t<ACUT.IMPACT){ // 一気に つきおろす（加速＝勢いよく）
+    c.line=''; c.dark=0.4;
+    const p=(c.t-ACUT.THRUST)/(ACUT.IMPACT-ACUT.THRUST);
+    c.spearY = HOVER + (p*p)*(STAB-HOVER);   // ease-in: だんだん 速く 突きおろす
+  }
+  // 命中の 瞬間（=以上 かつ 一度だけ。フレーム落ちでも 必ず 発火し mercyBroken を セット）
+  if(c.t>=ACUT.IMPACT && !c.broke){
+    stopMusic();              // 導入曲を 断ち切る ── 衝撃と 無音
+    se('don'); se('break'); shake=32; flash=26; c.dark=0; c.camZoom=0; c.burst=22;   // ドンっ＋砕け
+    c.broke=true; enemy.mercyBroken=true; spawnMercyShards();
+    c.spearY=STAB;            // 槍は みのがす に 刺さったまま
+  }
+  if(c.burst>0) c.burst--;
+  // 破壊後: 無音の まま 2行の ダイアログ → そのあと ラストバトルBGM
+  if(c.broke){
+    c.spearY=H-70;
+    if(c.t<ACUT.MUSIC){ c.line='── 戦う しか、ないのか。\n  もう、もどれは しない。'; }  // 無音の 余韻
+    else { c.line='たたかう しか ない。'; }
+  }
+  if(c.broke && !c.battleStarted && c.t>=ACUT.MUSIC){ c.battleStarted=true; playTheme('argor'); }
+  if(c.t>=ACUT.END){ c.done=true; }
+  // 破片 物理
+  for(const s of c.shards){ s.x+=s.vx; s.y+=s.vy; s.vy+=0.18; s.rot+=s.vr; s.life-=0.012; }
+  c.shards=c.shards.filter(s=>s.life>0);
+  // 念のため: 終了時に 破壊が 未確定なら 確実に 立てる
+  if(c.done){ enemy.mercyBroken=true; battleMsg=battleStatus(enemy); state=ST.MENU; menuIndex=0; clearPressed(); }
+}
+function drawArgorCut(){
+  const c=argorCut;
+  // 背景: 玉座の間
+  if(IMG.bg_throne) drawImgCover(IMG.bg_throne, 0.72);
+  // ※カメラの 拡大(ズーム)は しない ── 画面は つねに 等倍のまま
+  ctx.save();
+  // 王 ── 変身前(やさしい王) → 変身 → 戦闘形態(いくさの王)
+  // ★サイズ・位置は 戦闘時(drawBattle)と 完全に そろえる（大きく/小さく ならない）
+  const raise = (c.t>=ACUT.TRANSFORM && c.t<ACUT.RISE)? -6 : 0;   // 変身直後に ほんの少し かまえる（サイズは 変えない）
+  const isBattle = c.t>=ACUT.TRANSFORM;
+  const kingImg = isBattle ? IMG.char_argor : IMG.char_argor_calm;
+  drawImgStretch(kingImg, W/2, KING_Y+raise, KING_W, KING_H);   // 戦闘時と 同じ サイズ・位置で 統一（拡大なし）
+  txt('* '+(isBattle?'灰冠の王 アルゴール':'やさしき 王 アルゴール'), W/2, 232, 15, '#fff','center');
+  // コマンド枠: 普段の戦闘と まったく 同じ 見た目（たたかう/こうどう/どうぐ/みのがす）。
+  // mercyBroken が 立つと drawMenu 側で みのがす が こわれた 表示に なる。
+  const _mi=menuIndex; menuIndex=-1; drawMenu(); menuIndex=_mi;
+  // 破片（みのがす が 砕けた ときの かけら）
+  for(const s of c.shards){ ctx.save(); ctx.translate(s.x,s.y); ctx.rotate(s.rot);
+    ctx.globalAlpha=Math.max(0,s.life); ctx.fillStyle='#eee'; ctx.fillRect(-s.sz/2,-s.sz/2,s.sz,s.sz); ctx.restore(); ctx.globalAlpha=1; }
+  // 槍 ── 変身直後は 王が 赤い槍を かまえ、やがて 巨大な 槍が 宙に あらわれて みのがす を 突き刺す
+  const sx=40+3*145+65; // みのがす ボックス 中央
+  if(c.t>=ACUT.TRANSFORM && c.t<ACUT.RISE){
+    drawRedSpear(W/2+4, KING_Y+28+raise, 236, 0.60);   // 王の手の 赤い槍（戦闘と 同じ サイズ・構え）
+  }
+  if(c.t>=ACUT.RISE){
+    drawRedLance(sx, c.spearY, 1.4);             // みのがす へ 下向き（矢印）に あらわれ／刺さる（大きめ）
+  }
+  // みのがす 破壊の 衝撃波（白い 輪 ＋ 十字の ひび）
+  if(c.burst>0){ const my=H-50, p=1-c.burst/20, R=10+p*70;
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    ctx.strokeStyle='rgba(255,255,255,'+(c.burst/20)+')'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.arc(sx,my,R,0,7); ctx.stroke();
+    ctx.lineWidth=2; ctx.beginPath();
+    ctx.moveTo(sx-R,my);ctx.lineTo(sx+R,my); ctx.moveTo(sx,my-R*0.7);ctx.lineTo(sx,my+R*0.7); ctx.stroke();
+    ctx.restore();
+  }
+  // 暗転オーバーレイ
+  if(c.dark>0){ ctx.fillStyle='rgba(0,0,0,'+c.dark+')'; ctx.fillRect(-40,-40,W+80,H+80); }
+  ctx.restore();
+  // テキスト欄（揺れ・ズームの 影響を 受けない 固定）
+  drawCutTextBox(c.line);
+  // ※スキップ不可なので 案内は 出さない
+}
+function drawCutCommands(){
+  const y=H-70; const labels=['FIGHT','ACT','ITEM','MERCY'];
+  for(let i=0;i<4;i++){ const x=40+i*145;
+    if(i===3 && argorCut.broke){
+      // 砕けた MERCY: ヒビ枠 ＋「……」＋ 破片
+      ctx.strokeStyle='#544'; ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.moveTo(x,y);ctx.lineTo(x+56,y); ctx.moveTo(x+74,y);ctx.lineTo(x+130,y);ctx.lineTo(x+130,y+16);
+      ctx.moveTo(x+130,y+28);ctx.lineTo(x+130,y+40);ctx.lineTo(x+72,y+40); ctx.moveTo(x+56,y+40);ctx.lineTo(x,y+40);ctx.lineTo(x,y);
+      ctx.stroke();
+      ctx.strokeStyle='#876'; ctx.beginPath(); ctx.moveTo(x+66,y);ctx.lineTo(x+58,y+16);ctx.lineTo(x+72,y+27);ctx.lineTo(x+62,y+40); ctx.stroke();
+      txt('……', x+65, y+12, 15, '#766','center');
+    } else {
+      // MERCY破壊前に MERCYだけ 点滅・黄色強調
+      let col='#fa3';
+      if(i===3 && !argorCut.broke && argorCut.t>=ACUT.STANCE){ col = (Math.floor(argorCut.t/6)%2===0)?'#ff5':'#a85'; }
+      const tremble = (i===3 && !argorCut.broke && argorCut.t>=ACUT.DARKEN)? (Math.random()-0.5)*3 : 0;
+      ctx.strokeStyle=(i===3&&!argorCut.broke&&argorCut.t>=ACUT.STANCE)?col:'#f80'; ctx.lineWidth=2;
+      ctx.strokeRect(x+tremble,y,130,40);
+      txt(labels[i],x+65+tremble,y+12,16,col,'center');
+    }
+  }
+  // 破片
+  for(const s of argorCut.shards){ ctx.save(); ctx.translate(s.x,s.y); ctx.rotate(s.rot);
+    ctx.globalAlpha=Math.max(0,s.life); ctx.fillStyle='#eee'; ctx.fillRect(-s.sz/2,-s.sz/2,s.sz,s.sz); ctx.restore(); ctx.globalAlpha=1; }
+}
+function drawSpear(cx,tipY){
+  // CSS不使用・canvas図形の 三叉槍
+  ctx.save(); ctx.translate(cx,0);
+  ctx.fillStyle='#fff'; ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+  // 柄
+  ctx.fillRect(-3, tipY-130, 6, 120);
+  // 三叉の 穂先
+  ctx.beginPath();
+  ctx.moveTo(0,tipY); ctx.lineTo(-12,tipY-22); ctx.lineTo(-7,tipY-22); ctx.lineTo(-5,tipY-10);
+  ctx.lineTo(-5,tipY-30); ctx.lineTo(0,tipY-40); ctx.lineTo(5,tipY-30); ctx.lineTo(5,tipY-10);
+  ctx.lineTo(7,tipY-22); ctx.lineTo(12,tipY-22); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+/* 生成した槍画像を 加算合成で 描く（黒背景は消え、光る槍だけ 残る）。
+   画像が まだ 読めない ときは canvas図形の 槍に フォールバック。 */
+// 白い槍画像を 赤く 着色した オフスクリーンを 作る（一度だけ・キャッシュ）
+const _redCache={};
+function getRedSpear(frame){
+  if(_redCache[frame]) return _redCache[frame];
+  try{
+    const img=IMG[frame];
+    if(img && img.complete && img.naturalWidth){
+      const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
+      const g=c.getContext('2d');
+      g.fillStyle='#ff2424'; g.fillRect(0,0,c.width,c.height);
+      g.globalCompositeOperation='multiply'; g.drawImage(img,0,0);            // 白→赤、黒→黒
+      g.globalCompositeOperation='lighter'; g.globalAlpha=0.4; g.drawImage(img,0,0); // 芯を 明るく
+      _redCache[frame]=c; return c;
+    }
+  }catch(e){}
+  return null;
+}
+function drawSpearImg(cx, tipY, frame){
+  const red=getRedSpear(frame), img=red||IMG[frame];
+  if(!img){ drawSpear(cx, tipY); return; }
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';    // 黒は消える / 赤い槍だけ 残る
+  if(frame==='spear3'){ const s=260; ctx.drawImage(img, cx-s/2, tipY-s/2, s, s); }
+  else { const s=300; ctx.drawImage(img, cx-s/2, tipY-s*0.80, s, s); }
+  ctx.restore();
+}
+// 戦闘中の王が 構える 赤い槍（両端に 穂先・白いグリップ）。斜めに 重ねる。
+function drawRedSpear(cx, cy, len, ang){
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang);
+  const L=len/2;
+  ctx.globalCompositeOperation='lighter';
+  ctx.fillStyle='rgba(235,30,30,0.28)'; ctx.fillRect(-L-8,-11,len+16,22);   // グロー
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='#cc1414'; ctx.fillRect(-L,-5,len,10);                       // 柄(赤)
+  ctx.fillStyle='#ff6060'; ctx.fillRect(-L,-5,len,3);                        // ハイライト
+  ctx.fillStyle='#e22424';
+  for(const e of [[L,1],[-L,-1]]){ const x=e[0], d=e[1];                      // 両端の 穂先
+    ctx.beginPath();
+    ctx.moveTo(x+d*32,0); ctx.lineTo(x+d*9,-14); ctx.lineTo(x+d*13,-4); ctx.lineTo(x,-3);
+    ctx.lineTo(x,3); ctx.lineTo(x+d*13,4); ctx.lineTo(x+d*9,14); ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle='#fff';                                                       // 白いグリップ
+  ctx.fillRect(-L*0.34-11,-9,22,18); ctx.fillRect(L*0.30-11,-9,22,18);
+  ctx.restore();
+}
+/* みのがす に 投げ込む 赤い槍。先端(tipY)を 下に した 大きく 鋭い 矛先（=みのがす方向の 矢印）。 */
+function drawRedLance(cx, tipY, scale){
+  scale=scale||1;
+  const headLen=60*scale, headW=34*scale, shaftW=12*scale, shaftLen=250*scale;
+  const topY=tipY-headLen-shaftLen;          // 柄の 上端
+  ctx.save(); ctx.translate(cx,0);
+  // グロー（穂先まわり）
+  ctx.globalCompositeOperation='lighter';
+  ctx.fillStyle='rgba(240,40,40,0.30)';
+  ctx.beginPath();
+  ctx.moveTo(0,tipY+8); ctx.lineTo(-headW/2-6,tipY-headLen-4); ctx.lineTo(headW/2+6,tipY-headLen-4); ctx.closePath(); ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+  // 柄（上へ のびる）
+  ctx.fillStyle='#cc1414'; ctx.fillRect(-shaftW/2, topY, shaftW, shaftLen);
+  ctx.fillStyle='#ff6060'; ctx.fillRect(-shaftW/2, topY, shaftW*0.4, shaftLen);   // ハイライト
+  // 白いグリップ
+  ctx.fillStyle='#fff';
+  ctx.fillRect(-shaftW/2-6, topY+shaftLen*0.50, shaftW+12, 18*scale);
+  ctx.fillRect(-shaftW/2-6, topY+shaftLen*0.16, shaftW+12, 14*scale);
+  // 穂先（下向きの 鋭い 三角＋かえし）
+  const baseY=tipY-headLen;
+  ctx.fillStyle='#e22424';
+  ctx.beginPath();
+  ctx.moveTo(0,tipY);                         // 先端（下）= みのがす を 指す
+  ctx.lineTo(-headW/2, baseY);                // 左の かえし
+  ctx.lineTo(-shaftW/2-2, baseY+headLen*0.30);
+  ctx.lineTo(-shaftW/2, baseY);
+  ctx.lineTo(shaftW/2, baseY);
+  ctx.lineTo(shaftW/2+2, baseY+headLen*0.30);
+  ctx.lineTo(headW/2, baseY);                 // 右の かえし
+  ctx.closePath(); ctx.fill();
+  // 穂先の 中央稜線（明るく）
+  ctx.fillStyle='#ff9a9a';
+  ctx.beginPath();
+  ctx.moveTo(0,tipY-4*scale); ctx.lineTo(-3.5*scale,baseY+4); ctx.lineTo(3.5*scale,baseY+4); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawCutTextBox(line){
+  if(!line) return;
+  const b=bphase.box;
+  ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.strokeRect(b.x,b.y,b.w,b.h);
+  ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(b.x,b.y,b.w,b.h);
+  ctx.fillStyle='#fff'; ctx.font='15px "Courier New",monospace'; ctx.textAlign='left';
+  wrapText('* '+line, b.x+12, b.y+16, b.w-24, 20);
+}
+function chooseMenu(){ se('confirm'); const cmd=MENU[menuIndex];
+  if(cmd==='たたかう'){ if(enemy.final && !enemy.fightConfirmed && !enemy.downed){ openFightConfirm(); } else startFightBar(); }
+  else if(cmd==='こうどう')openSub('act');
+  else if(cmd==='どうぐ')openSub('item');
+  else { if(enemy.final && enemy.mercyBroken && !enemy.downed){ se('cancel'); say(['慈悲は、砕かれた。','……みのがす ことは、できない。','（王を とめるには、いちど\n  ちからで くみふせる しか ない。\n  ほんとうの えらびは、その あとに 来る）'],()=>toMenu()); } else openSub('mercy'); } }
+function openFightConfirm(){ subType='fconf'; subIndex=1; subOptions=['FIGHT する','やめる']; state=ST.SUB; clearPressed(); }
+function openSub(type){ subType=type; subIndex=0;
+  if(type==='act')subOptions=enemy.acts.map(a=>a.label);
+  else if(type==='item')subOptions=player.candy>0?['いやしキャンディ ('+player.candy+')']:['（どうぐが ない）'];
+  else subOptions=['みのがす'+(enemy.spareReady?' ★':''),'にげる'];
+  state=ST.SUB; clearPressed(); }
+function chooseSub(){ se('confirm');
+  if(subType==='fconf'){ if(subIndex===0){ enemy.fightConfirmed=true; startFightBar(); } else { se('cancel'); toMenu(); } return; }
+  if(subType==='final'){ // とどめ / さしのべる
+    if(subIndex===0){ player.kills++; player.exp+=80; flags.argorSpared=false; playTheme('argor_sad');
+      say(['あなたは、とどめを さした。','王は、ていこう しなかった。','灰は、しずかに 風に とけて いった。','……かったのに、なにも うれしく ない。'],()=>winBattle('kill')); }
+    else { player.spares++; se('spare'); flags.argorSpared=true; playTheme('argor_sad');
+      say(['あなたは、王に てを さしのべた。','王は、おどろいて あなたを 見た。','「……わたしを、ゆるすのか。\n  こんな、わたしを」','王の ほおを、ひとすじ ながれる ものが あった。','「ありがとう、ヒトの 子よ」'],()=>winBattle('spare')); }
+    return; }
+  if(subType==='act'){ const a=enemy.acts[subIndex]; if(a.effect)a.effect(enemy);
+    const t=(typeof a.text==='function')?a.text(enemy):a.text; say(splitLines(t),()=>enemyTurn()); }
+  else if(subType==='item'){ if(player.candy>0){ player.candy--; se('heal'); const heal=10; player.hp=Math.min(player.maxhp,player.hp+heal);
+      const m=['いやしキャンディを たべた。','HPが '+heal+' かいふくした！'];
+      if(enemy.final && !enemy.downed) m.push('王は、きみが 立ちあがるのを 待っている。\n せかしは しない。\n だが ── にがしも しない。');
+      say(m,()=>enemyTurn()); }
+    else say(['もちものが ない。'],()=>toMenu()); }
+  else { if(subIndex===0){ if(enemy.spareReady){ player.spares++; se('spare'); playTheme('peace');
+        say(splitLines(enemy.spareText),()=>winBattle('spare')); }
+      else say(['まだ みのがせ そうに ない。','（あいての こころを ほぐして みよう）'],()=>enemyTurn()); }
+    else say(['だっしゅつ できない！','この あいてと むきあう しか ない。'],()=>enemyTurn()); }
+}
+function startFightBar(){ state=ST.FIGHTBAR; fightBarX=bphase.box.x+6; fightBarDir=1; fightBarLock=-1; clearPressed(); }
+let lastHitQual='';
+function resolveFight(){ const box=bphase.box,center=box.x+box.w/2,dist=Math.abs(fightBarLock-center);
+  const acc=Math.max(0,1-dist/(box.w/2));               // 0(はし)〜1(中央)
+  // 中央ほど 一気に 威力が あがる（acc^1.7）。はし=6, 中央=50
+  let dmg=Math.round(6+Math.pow(acc,1.7)*44);
+  // 命中の よしあし（演出用）
+  const qual = acc>=0.93?'  ちょくげき！' : acc>=0.7?'  いいね！' : acc<=0.25?'  かすり……' : '';
+  lastHitQual=qual;
+  if(enemy.final) dmg=Math.round(dmg*(enemy.dmgUp||1));
+  enemy.hp-=dmg; fightHitFlash=18; shake=acc>=0.93?14:8; if(acc>=0.93)flash=10; se('hit');
+  if(enemy.final){
+    if(enemy.hp<=0){ enemy.hp=0; argorDefeated(); return; }
+    const r=enemy.hp/enemy.maxhp;
+    if(enemy.phase<2 && r<=0.6){ enemy.phase=2;
+      say([enemy.name+'に '+dmg+'の ダメージ！'+qual,'王は、きみの 目を 見られない。','槍の きどうが、わずかに ゆれた。','── それでも、たたかいは おわらない。'],()=>enemyTurn()); return; }
+    if(enemy.phase<3 && r<=0.25){ enemy.phase=3; enemy.crownFell=true; playTheme('argor_sad'); shake=10;
+      say([enemy.name+'に '+dmg+'の ダメージ！'+qual,'王冠が、床に おちた。','そこに いるのは、もう 王では ない。','ただ、おわらせ方を 知らない\n だれか だった。'],()=>enemyTurn()); return; }
+    say([enemy.name+'に '+dmg+'の ダメージ！'+qual],()=>enemyTurn()); return;
+  }
+  if(enemy.hp<=0){ enemy.hp=0; player.kills++; player.exp+=enemy.boss?60:20; player.gold+=8;
+    say([enemy.name+'に '+dmg+'の ダメージ！'+qual,enemy.name+'を たおして しまった……。'],()=>winBattle('kill')); }
+  else say([enemy.name+'に '+dmg+'の ダメージ！'+qual],()=>enemyTurn()); }
+/* アルゴール: 倒れたあとの「最後の槍」と、本当の選択 */
+function argorDefeated(){ enemy.downed=true; shake=12; playTheme('argor_sad');
+  say(['王は、さいごの 槍を かまえた ──','だが その 槍は、きみの ハートの\n すぐ まえで、ぴたりと とまった。','王は、がっくりと 膝を ついた。','くだけて いた MERCY ボタンが、\nヒビの 入った まま、もどって きた。','……いま、ほんとうの えらびが、\n きみの 手に ある。'],()=>openFinalChoice()); }
+function openFinalChoice(){ subType='final'; subIndex=1; subOptions=['とどめを さす','てを さしのべる']; state=ST.SUB; clearPressed(); }
+function enemyTurn(){ if(enemy.hp<=0)return; state=ST.ENEMY; bphase.active=true; bphase.t=0; bphase.bullets=[];
+  bphase.frames=enemy.turnFrames; soul.x=bphase.box.x+bphase.box.w/2; soul.y=bphase.box.y+bphase.box.h/2; soul.invuln=0; clearPressed(); }
+function endEnemyTurn(){ bphase.active=false;
+  // 毎ターン、いまの 状況（状態・表情）を 説明 → そのまま ボックスに のこして 行動選択へ
+  battleMsg=battleStatus(enemy); say([battleMsg],()=>toMenu()); }
+function winBattle(kind){ state=ST.RESULT; resultTimer=70; flash=12; resultNext=()=>advance(); }
+/* =======================  ゲームオーバー（決意が砕け、また立ち上がる）  ======================= */
+const go={ t:0, halves:[], shown:0, msg:'', optActive:false, opts:[], sel:0 };
+function gameOver(){
+  state=ST.GAMEOVER; clearPressed();
+  stopMusic();                      // まず 静寂
+  go.t=0; go.halves=[]; go.shown=0; go.msg=''; go.optActive=false; go.sel=0;
+  go.opts = hasSave()? ['つづきから（ともしびへ）','タイトルへ'] : ['タイトルへ'];
+}
+function updateGameOver(){
+  go.t++;
+  // 70f: ハートが 割れる
+  if(go.t===70){
+    se('shatter'); shake=16; flash=10; playTheme('gameover');
+    go.halves=[ {side:-1,x:W/2,y:150,vx:-1.4,vy:-1.0,rot:0,vr:-0.05},
+                {side: 1,x:W/2,y:150,vx: 1.4,vy:-1.0,rot:0,vr: 0.05} ];
+  }
+  if(go.t>70){ for(const hf of go.halves){ hf.x+=hf.vx; hf.y+=hf.vy; hf.vy+=0.16; hf.rot+=hf.vr; } }
+  // 160f〜: 呼びかけ（タイプ表示）
+  if(go.t===160){ go.msg='……「'+player.name+'。」\n「まだ、おわって いない」\n「けつい を、てばなすな」'; go.shown=0; }
+  if(go.msg && go.shown<go.msg.length){
+    if(go.t%2===0){ go.shown++; if(go.shown%3===0)voiceBlip(VOICES.voice); }
+  }
+  // 文字を 出しきって 少し 間を おいたら、選択を 出す
+  if(go.msg && go.shown>=go.msg.length && go.t>320){ go.optActive=true; }
+  // 選択
+  if(go.optActive){
+    if(consume('up')){ go.sel=(go.sel+go.opts.length-1)%go.opts.length; se('select'); }
+    if(consume('down')){ go.sel=(go.sel+1)%go.opts.length; se('select'); }
+    if(consume('confirm')){ se('confirm');
+      const c=go.opts[go.sel];
+      if(c.indexOf('つづき')>=0){ loadGame(); }   // 決意によって、ともしびから 立ち上がる
+      else { backToTitle(); }
+    }
+  }
+}
+
+/* =======================  ループ  ======================= */
+let gframe=0;
+function update(){
+  gframe++;                       // アニメ用 グローバルフレーム
+  if(shake>0){shake*=0.85;if(shake<0.5)shake=0;}
+  if(flash>0)flash--; if(fightHitFlash>0)fightHitFlash--;
+  switch(state){
+    case ST.TITLE:{
+      playTheme('title');   // タイトル中は ずっと タイトル曲（音声解禁後 自動で 鳴り、ループ）
+      const opts=titleOptions();
+      if(consume('up')){titleSel=(titleSel+opts.length-1)%opts.length;se('select');}
+      if(consume('down')){titleSel=(titleSel+1)%opts.length;se('select');}
+      if(consume('confirm')){ ensureAudio(); se('confirm');
+        const choice=opts[titleSel%opts.length];
+        if(choice==='つづきから'){ loadGame(); }
+        else { clearSave(); resetGame(); seqPos=0; runSeq(); }
+      }
+      break;}
+    case ST.CUT: updateCut(); break;
+    case ST.WALK: updateWalk(); break;
+    case ST.DIALOG:
+      dialogTimer++;
+      if(dialogShown<dialogText.length){ const vv=currentVoice();
+        const adv = keys.confirm?2 : ((vv&&vv.slow)? (dialogTimer%2===0?1:0) : 1);
+        dialogShown+=adv; const rt=(vv&&vv.rate)||3; if(adv&&dialogShown%rt===0)voiceBlip(vv);
+        if(dialogShown>dialogText.length)dialogShown=dialogText.length; }
+      if(consume('confirm')){ if(dialogShown<dialogText.length)dialogShown=dialogText.length;
+        else { const a=afterDialog; afterDialog=null; if(a)a(); } }
+      break;
+    case ST.MENU:
+      if(consume('left')){menuIndex=(menuIndex+MENU.length-1)%MENU.length;se('select');}
+      if(consume('right')){menuIndex=(menuIndex+1)%MENU.length;se('select');}
+      if(consume('confirm'))chooseMenu();
+      break;
+    case ST.SUB:
+      if(consume('up')){subIndex=(subIndex+subOptions.length-1)%subOptions.length;se('select');}
+      if(consume('down')){subIndex=(subIndex+1)%subOptions.length;se('select');}
+      if(consume('cancel')){ if(subType!=='final'){se('cancel');toMenu();} } // 最後の選択は もどれない
+      if(consume('confirm'))chooseSub();
+      break;
+    case ST.FIGHTBAR:{const box=bphase.box;
+      if(fightBarLock<0){ fightBarX+=fightBarDir*7;
+        if(fightBarX>box.x+box.w-6){fightBarX=box.x+box.w-6;fightBarDir=-1;}
+        if(fightBarX<box.x+6){fightBarX=box.x+6;fightBarDir=1;}
+        if(consume('confirm')){fightBarLock=fightBarX;resolveFight();} }
+      break;}
+    case ST.ENEMY: updateBulletPhase(); break;
+    case ST.TUTORIAL: updateTutorial(); break;
+    case ST.RESULT: if(--resultTimer<=0){const n=resultNext;resultNext=null;if(n)n();} break;
+    case ST.ARGORCUT: updateArgorCut(); break;
+    case ST.GAMEOVER: updateGameOver(); break;
+  }
+  clearPressed();
+}
+let cutTick=0;
+function updateCut(){
+  cutTick++;
+  if(cutShown<cutText.length){ const vv=currentVoice();
+    const adv = keys.confirm?3 : ((vv&&vv.slow)? (cutTick%2===0?1:0) : 1);
+    cutShown+=adv; const rt=(vv&&vv.rate)||3; if(adv&&cutShown%rt===0)voiceBlip(vv);
+    if(cutShown>cutText.length)cutShown=cutText.length; }
+  if(cut.choice && cutShown>=cutText.length && cut.idx>=cut.pages.length-1){
+    // 選択肢モード
+    if(consume('up')||consume('down')){ cut.choice.sel=(cut.choice.sel?0:1); se('select'); }
+    if(consume('confirm')){ se('confirm'); const o=cut.choice.opts[cut.choice.sel||0]; const f=o.after; cut.choice=null; f(); }
+    return;
+  }
+  if(consume('confirm')){
+    if(cutShown<cutText.length){ cutShown=cutText.length; return; }
+    if(cut.idx<cut.pages.length-1){ cut.idx++; loadPage(); }
+    else { const a=cut.after; cut.after=null; if(a)a(); }
+  }
+}
+function resetGame(){ Object.assign(player,{hp:20,maxhp:20,lv:1,exp:0,gold:0,candy:3,kills:0,spares:0});
+  Object.assign(flags,{obeyedSmoke:false,seq:0,argorSpared:false}); enemies=makeEnemies(); buildStory(); curPlace=''; eIndex=0; }
+
+function updateBulletPhase(){
+  const b=bphase,box=b.box; b.t++; const pad=6;
+  let mvx=0,mvy=0;
+  if(soul.touch){                 // タッチ: ハートが 指の いちへ ついてくる
+    const tx=Math.max(box.x+pad,Math.min(box.x+box.w-pad,soul.tx));
+    const ty=Math.max(box.y+pad,Math.min(box.y+box.h-pad,soul.ty));
+    mvx=tx-soul.x; mvy=ty-soul.y;
+    soul.x+=mvx*0.55; soul.y+=mvy*0.55;
+  } else {                        // キーボード／Dパッド
+    const sp=2.7;
+    if(keys.left)mvx-=sp;if(keys.right)mvx+=sp;if(keys.up)mvy-=sp;if(keys.down)mvy+=sp;
+    soul.x+=mvx; soul.y+=mvy;
+  }
+  soul.x=Math.max(box.x+pad,Math.min(box.x+box.w-pad,soul.x));
+  soul.y=Math.max(box.y+pad,Math.min(box.y+box.h-pad,soul.y));
+  const moving=(Math.abs(mvx)+Math.abs(mvy) > 0.8);   // 青/橙弾の「動いている」判定
+  enemy.attack(b);
+  if(soul.invuln>0)soul.invuln--;
+  for(let i=b.bullets.length-1;i>=0;i--){const bl=b.bullets[i]; bl.upd&&bl.upd();
+    if(bl.warn>0){ continue; } // 予告中は 当たらず・消えず
+    if(bl.big){ if(bl.life<=0){b.bullets.splice(i,1);continue;} }
+    else { const m=40; if(bl.x<box.x-m||bl.x>box.x+box.w+m||bl.y<box.y-m||bl.y>box.y+box.h+m){ if(bl.off||bl.y>box.y-5){b.bullets.splice(i,1);continue;} } }
+    if(soul.invuln<=0){ let hit=false;
+      if(bl.big){ const cy=box.y+box.h/2,inBand=soul.y>cy-14&&soul.y<cy+14;
+        if(inBand){ if(bl.color==='blue'&&moving)hit=true; if(bl.color==='orange'&&!moving)hit=true; } }
+      else if(bl.r!==undefined){ const dx=soul.x-bl.x,dy=soul.y-bl.y; if(dx*dx+dy*dy<(bl.r+4)*(bl.r+4))hit=true; }
+      else { if(soul.x>bl.x-2&&soul.x<bl.x+bl.w+2&&soul.y>bl.y-2&&soul.y<bl.y+bl.h+2)hit=true; }
+      if(hit){ damagePlayer(enemy.atk); soul.invuln=30; } }
+  }
+  if(b.t>=b.frames && b.bullets.filter(x=>!x.big).length===0) endEnemyTurn();
+  else if(b.t>=b.frames+90) endEnemyTurn();
+}
+function damagePlayer(d){ player.hp-=d; shake=8; flash=6; se('hurt'); if(player.hp<=0){player.hp=0;gameOver();} }
+
+/* =======================  描画  ======================= */
+function draw(){
+  ctx.save(); if(shake>0)ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);
+  ctx.fillStyle='#000'; ctx.fillRect(-20,-20,W+40,H+40);
+  switch(state){
+    case ST.TITLE: drawTitle(); break;
+    case ST.CUT: drawCut(); break;
+    case ST.WALK: drawWalk(); break;
+    case ST.ARGORCUT: drawArgorCut(); break;
+    case ST.TUTORIAL: drawTutorial(); break;
+    case ST.GAMEOVER: drawGameOver(); break;
+    case ST.DIALOG:
+      if(dialogReturnWalk){ drawWalk(); drawOverworldDialog(); }  // 探索中の会話: 部屋を背景に
+      else drawBattle();
+      break;
+    default: drawBattle();
+  }
+  if(flash>0){ctx.fillStyle='rgba(255,255,255,'+(flash/30)+')';ctx.fillRect(-20,-20,W+40,H+40);}
+  // ミュート表示
+  if(muted){ txt('♪×',W-22,8,14,'#555','right'); }
+  ctx.restore();
+}
+function txt(s,x,y,size,color,align){ ctx.fillStyle=color||'#fff'; ctx.font=size+'px "Courier New",monospace'; ctx.textAlign=align||'left'; ctx.fillText(s,x,y); ctx.textAlign='left'; }
+function drawImgCover(img,dark){ if(img&&img.complete&&img.naturalWidth){ const s=Math.max(W/img.naturalWidth,H/img.naturalHeight);
+    const w=img.naturalWidth*s,h=img.naturalHeight*s; ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h); }
+  ctx.fillStyle='rgba(0,0,0,'+dark+')'; ctx.fillRect(0,0,W,H); }
+function drawImgFit(img,cx,cy,maxw,maxh){ if(!img||!img.complete||!img.naturalWidth)return;
+  const s=Math.min(maxw/img.naturalWidth,maxh/img.naturalHeight),w=img.naturalWidth*s,h=img.naturalHeight*s;
+  ctx.drawImage(img,cx-w/2,cy-h/2,w,h); }
+/* 指定した w×h ぴったりに 描く（アスペクト無視）。王の すがたを「少し横長の長方形」で 一定サイズに 出す用。 */
+function drawImgStretch(img,cx,cy,w,h){ if(!img||!img.complete||!img.naturalWidth)return; ctx.drawImage(img,cx-w/2,cy-h/2,w,h); }
+const KING_W=212, KING_H=212, KING_Y=118;   // 王の すがた: 正方形・つねに 同じ サイズ・位置（下のボックスに かぶらない）
+
+function drawTitle(){
+  drawImgCover(IMG.title_bg,0.55);
+  txt('やさしい失楽園',W/2,118,46,'#fff','center');
+  txt('THE  GENTLE  PARADISE  LOST',W/2,176,15,'#888','center');
+  txt('だれも たおさなくて いい RPG。',W/2,236,18,'#ccc','center');
+  txt('あいての HP では なく、こころを みる。',W/2,264,15,'#888','center');
+  // メニュー（つづきから / さいしょから）
+  const opts=titleOptions(); if(titleSel>=opts.length)titleSel=0;
+  for(let i=0;i<opts.length;i++){ const yy=312+i*34; const sel=(i===titleSel);
+    txt((sel?'▶ ':'   ')+opts[i],W/2,yy,20,sel?'#ff3':'#999','center'); }
+  if(hasSave()){ const d=readSave();
+    txt('（ともしび: '+((d&&d.place)||'地下のどこか')+'）',W/2,312+opts.length*34+4,12,'#777','center'); }
+  txt('↑↓ えらぶ   Z けってい',W/2,420,13,'#666','center');
+  txt('FIGHT  ACT  ITEM  MERCY     M: 音楽 ON/OFF',W/2,448,12,'#444','center');
+}
+function drawCut(){
+  // 背景の拡大画像: スプライトと 同じ画像なら 描かない（拡大画像と スプライトの 二重表示を 防ぐ）
+  const bgKey = (cut.img && cut.img!==cut.sprite) ? cut.img : null;
+  drawImgCover(bgKey?IMG[bgKey]:null, cut.dark);
+  // 中央に立つ キャラ画像（任意）── 会話シーンで キャラを 見せる
+  if(cut.sprite && IMG[cut.sprite]){
+    if(cut.sprite==='char_argor_calm'||cut.sprite==='char_argor'){
+      drawImgStretch(IMG[cut.sprite], W/2, KING_Y, KING_W, KING_H);   // 王は 戦闘時と 同じ サイズ・位置に そろえる
+    } else {
+      drawImgFit(IMG[cut.sprite], W/2, 150, 280, 240);
+    }
+  }
+  // 文字ボックス
+  const bx=40,by=H-150,bw=W-80,bh=110;
+  ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(bx,by,bw,bh);
+  ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.strokeRect(bx,by,bw,bh);
+  ctx.fillStyle='#fff'; ctx.font='17px "Courier New",monospace'; ctx.textAlign='left';
+  wrapText(cutText.substring(0,cutShown),bx+18,by+16,bw-36,24);
+  if(cut.choice && cutShown>=cutText.length && cut.idx>=cut.pages.length-1){
+    const sel=cut.choice.sel||0;
+    txt('* '+cut.choice.q,bx+18,by-78,15,'#ff3','left');
+    for(let i=0;i<cut.choice.opts.length;i++){ const yy=by-50+i*24;
+      txt((i===sel?'> ':'  ')+cut.choice.opts[i].label,bx+30,yy,16,i===sel?'#ff3':'#aaa','left'); }
+  } else if(cutShown>=cutText.length && Math.floor(Date.now()/400)%2===0){
+    txt('▼',bx+bw-26,by+bh-28,16,'#fff','left');
+  }
+  // ページ数
+  if(cut.pages.length>1) txt((cut.idx+1)+'/'+cut.pages.length,bx+bw-8,by-2,11,'#666','right');
+}
+function wrapText(text,x,y,maxw,lh){ let line='',yy=y;
+  for(const ch of text){ if(ch==='\n'){ctx.fillText(line,x,yy);line='';yy+=lh;continue;}
+    const test=line+ch; if(ctx.measureText(test).width>maxw){ctx.fillText(line,x,yy);line=(ch===' '?'':ch);yy+=lh;} else line=test; }
+  ctx.fillText(line,x,yy); }
+
+/* 王の2フレームを クロスフェードで なめらかに 重ねて 描く（動画のような 補間）。
+   足元エリアを 黒で 塗ってから 重ねるので、ゴーストや 背景の にじみが 出ない。 */
+function drawKingX(fa, fb, cx, cy, p){
+  const w=210, h=200;
+  ctx.fillStyle='#000'; ctx.fillRect(cx-w/2-6, cy-h/2-8, w+12, h+16);
+  const A=IMG[fa]||IMG.char_argor, B=IMG[fb]||IMG.char_argor;
+  ctx.globalAlpha=1-p; drawImgFit(A, cx, cy, w, h);
+  if(p>0.001){ ctx.globalAlpha=p; drawImgFit(B, cx, cy, w, h); }
+  ctx.globalAlpha=1;
+}
+function drawBattle(){
+  // 最終ボス: 玉座の間を 背景に
+  if(enemy && enemy.final && IMG.bg_throne){ drawImgCover(IMG.bg_throne, enemy.crownFell?0.84:0.7); }
+  // 敵 画像
+  if(enemy){
+    if(enemy.final){
+      // 変身（=みのがす破壊）の 前は やさしい王、後は いくさの王＋赤い槍。矛盾しない ように 統一。
+      const fierce = enemy.mercyBroken;
+      drawImgStretch(fierce?IMG.char_argor:IMG.char_argor_calm, W/2, KING_Y, KING_W, KING_H);
+      if(fierce) drawRedSpear(W/2+4, KING_Y+28, 236, 0.60);   // 赤い槍は 変身後だけ（王の大きさに合わせる）
+    } else {
+      const sh=enemy.spareReady?0:(state===ST.ENEMY?Math.sin(bphase.t*0.3)*3:0);
+      drawImgFit(IMG[enemy.key], W/2+sh, 130, 200, 180);
+    }
+    let col=enemy.spareReady?'#ff3':'#fff';
+    let nm = (enemy.final && enemy.crownFell)? enemy.shortName : enemy.name;
+    let tag = enemy.spareReady?'   （みのがせる！）':'';
+    if(enemy.final && enemy.downed){ col='#ff6'; tag='   （ひざを ついている）'; }
+    txt('* '+nm+tag,W/2,232,enemy.final?15:17,col,'center'); }
+  if(state===ST.DIALOG||state===ST.RESULT) drawDialogBox();
+  else if(state===ST.ENEMY||state===ST.FIGHTBAR){ drawBox(); if(state===ST.ENEMY)drawBulletsAndSoul(); else drawFightBar(); }
+  else { drawBox(); if(state===ST.MENU) drawBattleMsg(); }   // 行動選択中は 状況テキストを 出す
+  drawHUD();
+  if(state===ST.MENU)drawMenu();
+  if(state===ST.SUB)drawSub();
+}
+/* 行動選択中、戦闘ボックスに「いまの 状況・表情」を のこして 見せる */
+function drawBattleMsg(){ if(!battleMsg)return; const b=bphase.box;
+  ctx.fillStyle='#fff'; ctx.font='15px "Courier New",monospace'; ctx.textAlign='left';
+  wrapText('* '+battleMsg, b.x+12, b.y+16, b.w-24, 20); }
+function drawBox(){const b=bphase.box;ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.strokeRect(b.x,b.y,b.w,b.h);}
+function drawBulletsAndSoul(){ const b=bphase.box; ctx.save(); ctx.beginPath(); ctx.rect(b.x-2,b.y-2,b.w+4,b.h+4); ctx.clip();
+  for(const bl of bphase.bullets)bl.draw&&bl.draw(ctx); ctx.restore();
+  if(soul.invuln%6<3)drawHeart(soul.x,soul.y,soul.invuln>0?'#a00':'#f00',5); }
+function drawHeart(x,y,col,s){ s=s||5; ctx.fillStyle=col; ctx.beginPath();
+  ctx.moveTo(x,y+s*0.7);
+  ctx.bezierCurveTo(x,y-s*0.2,x-s,y-s*0.4,x-s,y+s*0.2);
+  ctx.bezierCurveTo(x-s,y+s*0.9,x,y+s*1.1,x,y+s*1.5);
+  ctx.bezierCurveTo(x,y+s*1.1,x+s,y+s*0.9,x+s,y+s*0.2);
+  ctx.bezierCurveTo(x+s,y-s*0.4,x,y-s*0.2,x,y+s*0.7); ctx.fill(); }
+function drawFightBar(){const b=bphase.box; const cx=b.x+b.w/2, my=b.y+b.h/2, half=b.w/2-8;
+  // 威力ゲージ帯: 中央ほど 明るい＝高ダメージ（ひと目で わかる）
+  for(let x=b.x+8; x<b.x+b.w-8; x+=3){ const d=Math.abs(x-cx)/half; const a=Math.pow(Math.max(0,1-d),1.7);
+    ctx.fillStyle='rgba(255,238,90,'+(0.10+a*0.75)+')'; ctx.fillRect(x,my-18,3,36); }
+  // ちょくげき ゾーン枠（中央）
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.strokeRect(cx-Math.round(half*0.07)-3, my-18, Math.round(half*0.14)+6, 36);
+  txt('ちょくげき', cx, b.y-2, 10, '#ff6','center');
+  // 中央ターゲット線
+  ctx.strokeStyle='#ff3'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(cx,b.y+4); ctx.lineTo(cx,b.y+b.h-4); ctx.stroke();
+  // スライダー（とまる いち）
+  const sx=(fightBarLock<0?fightBarX:fightBarLock);
+  ctx.fillStyle='#fff'; ctx.fillRect(sx-3,b.y+4,6,b.h-8);
+  txt('▼', sx, b.y-14, 13, '#fff','center');
+  // 説明
+  txt('Z で きる！  中央(ちょくげき)に ちかいほど 大ダメージ', cx, b.y+b.h+10, 12, '#bbb','center');}
+function drawOverworldDialog(){
+  // 探索中の会話ボックス（下部）。戦闘の絵は出さない
+  const bx=40,by=H-150,bw=W-80,bh=110;
+  ctx.fillStyle='rgba(0,0,0,0.8)'; ctx.fillRect(bx,by,bw,bh);
+  ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.strokeRect(bx,by,bw,bh);
+  ctx.fillStyle='#fff'; ctx.font='16px "Courier New",monospace'; ctx.textAlign='left';
+  wrapText('* '+dialogText.substring(0,dialogShown),bx+16,by+16,bw-32,22);
+  if(dialogShown>=dialogText.length && Math.floor(Date.now()/400)%2===0) txt('▼',bx+bw-26,by+bh-28,16,'#fff');
+}
+function drawDialogBox(){const b=bphase.box;ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.strokeRect(b.x,b.y,b.w,b.h);
+  ctx.fillStyle='#fff';ctx.font='15px "Courier New",monospace';ctx.textAlign='left';
+  wrapText('* '+dialogText.substring(0,dialogShown),b.x+12,b.y+14,b.w-24,20);
+  if(state===ST.DIALOG&&dialogShown>=dialogText.length&&Math.floor(Date.now()/400)%2===0)txt('▼',b.x+b.w-22,b.y+b.h-26,16,'#fff');}
+function drawMenu(){const y=H-70;
+  const mercyBroke = enemy&&enemy.final&&enemy.mercyBroken&&!enemy.downed;
+  for(let i=0;i<MENU.length;i++){const x=40+i*145,sel=(i===menuIndex);
+    if(i===3 && mercyBroke){
+      // 砕けた MERCY: ヒビと 破片
+      ctx.strokeStyle='#544';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+58,y);ctx.moveTo(x+72,y);ctx.lineTo(x+130,y);
+      ctx.lineTo(x+130,y+18);ctx.moveTo(x+130,y+30);ctx.lineTo(x+130,y+40);ctx.lineTo(x+70,y+40);
+      ctx.moveTo(x+58,y+40);ctx.lineTo(x,y+40);ctx.lineTo(x,y);ctx.stroke();
+      // ヒビ
+      ctx.strokeStyle='#765';ctx.beginPath();ctx.moveTo(x+65,y);ctx.lineTo(x+60,y+14);ctx.lineTo(x+72,y+26);ctx.lineTo(x+66,y+40);ctx.stroke();
+      const pulse = Math.floor(Date.now()/350)%2===0;
+      txt('□□□□',x+65,y+12,15, pulse?'#a98':'#655','center');
+      continue;
+    }
+    ctx.strokeStyle=sel?'#ff3':'#f80';ctx.lineWidth=2;ctx.strokeRect(x,y,130,40);
+    txt(MENU[i],x+65,y+12,16,sel?'#ff3':'#fa3','center'); if(sel)drawHeart(x+14,y+20,'#f00',5);}
+  if(mercyBroke) txt('慈悲は、砕かれた。',W/2,y-22,13,'#866','center');}
+function drawSub(){const b=bphase.box;ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.strokeRect(b.x,b.y,b.w,b.h);
+  const head = subType==='act'?'* こうどう':subType==='item'?'* どうぐ':subType==='fconf'?'* ……本当に？':subType==='final'?'* ……どうする？':'* みのがす';
+  txt(head,b.x+12,b.y+8,14, subType==='final'||subType==='fconf'?'#ff6':'#aaa');
+  for(let i=0;i<subOptions.length;i++){const yy=b.y+34+i*24,sel=(i===subIndex);
+    txt(subOptions[i],b.x+34,yy,15,sel?'#ff3':'#fff'); if(sel)drawHeart(b.x+18,yy+7,'#f00',5);}
+  txt(subType==='fconf'||subType==='final'?'':'X: もどる',b.x+b.w-18,b.y+b.h-20,11,'#666','right');}
+function drawHUD(){const y=H-20;
+  txt(player.name,40,y-6,15,'#fff'); txt('LV '+player.lv,165,y-6,15,'#fff');
+  const hx=240,hw=120; txt('HP',hx-30,y-6,13,'#fff');
+  ctx.fillStyle='#a00';ctx.fillRect(hx,y-4,hw,14); ctx.fillStyle='#ff3';ctx.fillRect(hx,y-4,hw*Math.max(0,player.hp)/player.maxhp,14);
+  txt(Math.max(0,player.hp)+' / '+player.maxhp,hx+hw+12,y-6,14,'#fff');}
+function drawGameOver(){
+  ctx.fillStyle='#000'; ctx.fillRect(-40,-40,W+80,H+80);
+  if(go.t<70){
+    // 砕ける まえ: ハートが しずかに 止まる（少しだけ ふるえる）
+    const tr = go.t>50? (Math.random()-0.5)*2 : 0;
+    drawHeart(W/2+tr,150,'#f00',14);
+    if(go.t>30 && Math.floor(go.t/8)%2===0){ // 直前に ヒビが はしる
+      ctx.strokeStyle='#700'; ctx.lineWidth=2; ctx.beginPath();
+      ctx.moveTo(W/2,136); ctx.lineTo(W/2-3,150); ctx.lineTo(W/2+3,162); ctx.lineTo(W/2-2,176); ctx.stroke();
+    }
+  } else {
+    // 砕けた あと: 2つの 半分が おちていく
+    for(const hf of go.halves) drawHeartHalf(hf,14);
+  }
+  // 呼びかけ（タイプ表示）
+  if(go.msg){
+    ctx.fillStyle='#fff'; ctx.font='17px "Courier New",monospace'; ctx.textAlign='center';
+    const shown=go.msg.substring(0,go.shown).split('\n');
+    let yy=250; for(const ln of shown){ ctx.fillText(ln,W/2,yy); yy+=30; }
+    ctx.textAlign='left';
+  }
+  // 選択肢
+  if(go.optActive){
+    for(let i=0;i<go.opts.length;i++){ const yy=380+i*30, sel=(i===go.sel);
+      txt((sel?'▶ ':'   ')+go.opts[i],W/2,yy,16,sel?'#ff3':'#888','center'); }
+    txt('↑↓ えらぶ   Z けってい',W/2,380+go.opts.length*30+8,12,'#555','center');
+  }
+}
+/* 割れた ハートの 片割れ（クリップで 半分だけ 描く） */
+function drawHeartHalf(hf,s){
+  ctx.save();
+  ctx.translate(hf.x,hf.y); ctx.rotate(hf.rot);
+  ctx.beginPath();
+  if(hf.side<0) ctx.rect(-s*2,-s*2, s*2, s*4);   // 左半分
+  else          ctx.rect(0,-s*2, s*2, s*4);       // 右半分
+  ctx.clip();
+  // ローカル原点 中心に ハート
+  ctx.fillStyle='#c00';
+  const x=0,y=-s*0.7;
+  ctx.beginPath();
+  ctx.moveTo(x,y+s*0.7);
+  ctx.bezierCurveTo(x,y-s*0.2,x-s,y-s*0.4,x-s,y+s*0.2);
+  ctx.bezierCurveTo(x-s,y+s*0.9,x,y+s*1.1,x,y+s*1.5);
+  ctx.bezierCurveTo(x,y+s*1.1,x+s,y+s*0.9,x+s,y+s*0.2);
+  ctx.bezierCurveTo(x+s,y-s*0.4,x,y-s*0.2,x,y+s*0.7); ctx.fill();
+  ctx.restore();
+}
+
+/* =======================  起動  ======================= */
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
