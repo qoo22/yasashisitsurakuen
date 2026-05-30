@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>やさしい地下 ── 完全版</title>
+<style>
+  html,body{margin:0;padding:0;background:#000;height:100%;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    font-family:"Courier New",monospace;color:#fff;overflow:hidden;}
+  #wrap{display:flex;flex-direction:column;align-items:center;gap:8px;}
+  canvas{background:#000;image-rendering:pixelated;border:2px solid #1c1c1c;
+    max-width:97vw;max-height:84vh;touch-action:none;}
+  #hint{color:#666;font-size:12px;letter-spacing:1px;text-align:center;line-height:1.6;}
+  #hint b{color:#bbb;}
+  #pad{display:none;gap:26px;align-items:center;user-select:none;}
+  #dpad{display:grid;grid-template-columns:repeat(3,42px);grid-template-rows:repeat(3,42px);gap:4px;}
+  .btn{background:#111;border:2px solid #444;color:#ddd;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;user-select:none;}
+  .btn:active{background:#333;}
+  #acts{display:flex;gap:12px;}
+  #acts .btn{width:60px;height:46px;font-size:14px;}
+  @media (pointer:coarse){ #pad{display:flex;} #hint{display:none;} }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="640" height="480"></canvas>
+  <div id="hint">
+    <b>↑↓←→</b> 移動・選択 &nbsp;|&nbsp; <b>Z / Enter</b> 決定・はなす &nbsp;|&nbsp; <b>X / Shift</b> もどる &nbsp;|&nbsp; <b>M</b> 音楽 ON/OFF<br>
+    敵の攻撃ターンは <b>赤いハート</b> を動かして弾を避ける
+  </div>
+  <div id="pad">
+    <div id="dpad">
+      <span></span><div class="btn" data-k="ArrowUp">▲</div><span></span>
+      <div class="btn" data-k="ArrowLeft">◀</div><span></span><div class="btn" data-k="ArrowRight">▶</div>
+      <span></span><div class="btn" data-k="ArrowDown">▼</div><span></span>
+    </div>
+    <div id="acts"><div class="btn" data-k="z">Z</div><div class="btn" data-k="x">X</div></div>
+  </div>
+</div>
+<script>
+"use strict";
+/* =========================================================================
+   やさしい地下  ── 完全版 (The Gentle Underground · Full)
+   オリジナルの物語・音楽・アート。設計思想はアンダーテール型。
+   © 物語/楽曲はこのゲームのための完全オリジナル。
+   ========================================================================= */
+
+/* ---- 画像 (base64は後から注入) ---- */
+const IMG_B64 = __IMG_JSON__;
+const IMG = {};
+for(const k in IMG_B64){ const im=new Image(); im.src='data:image/png;base64,'+IMG_B64[k]; IMG[k]=im; }
+
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+const W=cv.width,H=cv.height; ctx.textBaseline='top';
+
+/* =======================  入力  ======================= */
+const keys={}, pressed={};
+function normKey(k){switch(k){
+  case'ArrowUp':case'w':case'W':return'up';
+  case'ArrowDown':case's':case'S':return'down';
+  case'ArrowLeft':case'a':case'A':return'left';
+  case'ArrowRight':case'd':case'D':return'right';
+  case'z':case'Z':case'Enter':case' ':return'confirm';
+  case'x':case'X':case'Shift':case'Backspace':return'cancel';
+  case'm':case'M':return'mute';
+}return null;}
+function setKey(k,d){k=normKey(k);if(!k)return;if(d&&!keys[k])pressed[k]=true;keys[k]=d;}
+window.addEventListener('keydown',e=>{const n=normKey(e.key);if(n){e.preventDefault();setKey(e.key,true);ensureAudio();if(n==='mute')toggleMute();}});
+window.addEventListener('keyup',e=>setKey(e.key,false));
+document.querySelectorAll('#pad .btn').forEach(b=>{const k=b.getAttribute('data-k');
+  const dn=e=>{e.preventDefault();setKey(k,true);ensureAudio();};const up=e=>{e.preventDefault();setKey(k,false);};
+  b.addEventListener('touchstart',dn,{passive:false});b.addEventListener('touchend',up,{passive:false});
+  b.addEventListener('mousedown',dn);b.addEventListener('mouseup',up);b.addEventListener('mouseleave',up);});
+function consume(k){if(pressed[k]){pressed[k]=false;return true;}return false;}
+function clearPressed(){for(const k in pressed)pressed[k]=false;}
+
+/* =======================  音楽エンジン (Web Audio · 8bit)  ======================= */
+let AC=null, masterGain=null, muted=false, curTheme=null, sched=null;
+function ensureAudio(){
+  if(AC) { if(AC.state==='suspended') AC.resume(); return; }
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    masterGain=AC.createGain(); masterGain.gain.value=0.16; masterGain.connect(AC.destination);
+    if(curTheme) playTheme(curTheme,true);
+  }catch(e){ AC=null; }
+}
+function toggleMute(){ muted=!muted; if(masterGain) masterGain.gain.value=muted?0:0.16; }
+function midi(n){ return 440*Math.pow(2,(n-69)/12); }
+function blip(freq,dur,type,vol,t0){
+  if(!AC||muted) return;
+  const t=t0||AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type||'square'; o.frequency.value=freq;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(vol||0.5,t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+dur+0.02);
+}
+/* テーマ定義: lead(midi列), bass(midi列), tempo(秒/拍), leadType */
+const N=0; // rest
+const THEMES={
+  title:{tempo:0.34,leadType:'triangle',
+    lead:[69,71,72,74,72,71,69,N, 67,69,71,69,67,N,N,N, 64,67,69,71,72,71,69,67, 69,N,N,N,N,N,N,N],
+    bass:[57,N,52,N,53,N,52,N, 50,N,55,N,52,N,55,N]},
+  explore:{tempo:0.30,leadType:'triangle',
+    lead:[72,N,74,N,76,74,72,N, 71,N,69,N,67,N,69,N, 72,N,71,N,69,N,67,N, 64,N,N,N,N,N,N,N],
+    bass:[48,N,55,N,50,N,57,N, 53,N,60,N,55,N,N,N]},
+  hone:{tempo:0.20,leadType:'square',  // こわがり: 上ずって ふるえる
+    lead:[76,77,76,77,76,N,72,N, 74,75,74,75,74,N,71,N, 76,77,76,N,79,N,76,N, 72,N,71,N,69,N,N,N],
+    bass:[40,40,N,40,41,41,N,41]},
+  kirari:{tempo:0.24,leadType:'square', // ナルシスト: 華やか
+    lead:[72,76,79,84,79,76,72,76, 74,77,81,86,81,77,74,77, 76,79,83,88,83,79,76,N, 84,83,81,79,77,76,74,72],
+    bass:[48,55,52,59,53,60,55,62]},
+  wanda:{tempo:0.36,leadType:'triangle', // さみしい: あたたかい
+    lead:[67,N,72,N,71,69,67,N, 64,N,67,N,69,N,N,N, 67,N,72,74,76,N,74,N, 72,N,71,N,67,N,N,N],
+    bass:[48,N,55,N,53,N,52,N, 45,N,52,N,48,N,N,N]},
+  kakuto:{tempo:0.18,leadType:'square', // 几帳面: 規則的・冷たい
+    lead:[60,60,67,67,60,60,67,67, 62,62,69,69,62,62,69,69, 64,64,71,71,64,64,71,71, 67,65,64,62,60,N,N,N],
+    bass:[36,36,36,36,38,38,38,38, 40,40,40,40,43,43,N,N]},
+  boss:{tempo:0.155,leadType:'square', // 緊張
+    lead:[69,72,76,72,69,72,76,72, 68,71,75,71,68,71,75,71, 67,70,74,70,67,70,74,70, 76,75,74,73,72,71,70,69],
+    bass:[33,33,40,40,32,32,39,39, 31,31,38,38,33,33,40,40]},
+  peace:{tempo:0.42,leadType:'triangle', // 見逃した時の安らぎ
+    lead:[72,N,76,N,79,N,76,N, 74,N,71,N,69,N,N,N, 72,N,76,N,81,79,76,N, 74,N,72,N,71,N,N,N],
+    bass:[48,N,55,N,53,N,52,N]},
+  light:{tempo:0.40,leadType:'triangle', // 光のエンディング
+    lead:[64,67,72,71,69,67,69,72, 74,72,71,69,67,69,71,N, 76,74,72,71,72,74,76,79, 72,N,N,N,N,N,N,N],
+    bass:[48,55,52,59,53,60,55,N]},
+  hollow:{tempo:0.5,leadType:'triangle', // むなしいエンディング
+    lead:[69,N,N,N,67,N,N,N, 64,N,N,N,62,N,N,N, 60,N,N,N,N,N,N,N, N,N,N,N,N,N,N,N],
+    bass:[33,N,N,N,N,N,N,N]},
+  gameover:{tempo:0.4,leadType:'triangle',
+    lead:[69,67,64,60,N,N,N,N],bass:[45,N,40,N]},
+};
+let sIdx=0, bIdx=0;
+function playTheme(name,force){
+  if(curTheme===name && !force){ return; }
+  curTheme=name; sIdx=0; bIdx=0;
+  if(!AC){ return; }
+  if(sched) clearInterval(sched);
+  const th=THEMES[name]; if(!th) return;
+  const step=()=>{
+    if(!AC||muted){ return; }
+    const th=THEMES[curTheme]; if(!th) return;
+    const t=AC.currentTime+0.02;
+    const ln=th.lead[sIdx%th.lead.length];
+    if(ln>0) blip(midi(ln),th.tempo*0.95,th.leadType,0.42,t);
+    const bn=th.bass[bIdx%th.bass.length];
+    if(bn>0) blip(midi(bn),th.tempo*1.4,'triangle',0.5,t);
+    // ハット
+    if(name!=='hollow' && sIdx%2===0 && AC){
+      const o=AC.createGain(); o.gain.setValueAtTime(0.06,t); o.gain.exponentialRampToValueAtTime(0.0001,t+0.05);
+      const bs=AC.createBufferSource(); const buf=AC.createBuffer(1,256,AC.sampleRate);
+      const d=buf.getChannelData(0); for(let i=0;i<256;i++)d[i]=Math.random()*2-1; bs.buffer=buf;
+      bs.connect(o); o.connect(masterGain); bs.start(t); bs.stop(t+0.05);
+    }
+    sIdx++; if(sIdx%2===0) bIdx++;
+  };
+  sched=setInterval(step, THEMES[name].tempo*1000);
+}
+/* 効果音 */
+function se(kind){
+  if(!AC||muted)return; const t=AC.currentTime;
+  if(kind==='select') blip(660,0.05,'square',0.3,t);
+  else if(kind==='confirm'){ blip(880,0.05,'square',0.35,t); blip(1320,0.05,'square',0.25,t+0.05); }
+  else if(kind==='cancel') blip(330,0.06,'square',0.3,t);
+  else if(kind==='hit'){ blip(160,0.12,'square',0.5,t); blip(110,0.12,'sawtooth',0.3,t); }
+  else if(kind==='hurt'){ blip(200,0.15,'sawtooth',0.5,t); blip(150,0.2,'square',0.4,t+0.02); }
+  else if(kind==='heal'){ blip(880,0.1,'triangle',0.4,t); blip(1320,0.12,'triangle',0.3,t+0.08); }
+  else if(kind==='spare'){ [659,784,988,1319].forEach((f,i)=>blip(f,0.18,'triangle',0.35,t+i*0.09)); }
+  else if(kind==='text') blip(740,0.02,'square',0.12,t);
+  else if(kind==='save'){ [523,659,784,1047].forEach((f,i)=>blip(f,0.25,'triangle',0.3,t+i*0.12)); }
+}
+
+/* =======================  プレイヤー  ======================= */
+const player={name:'あなた',hp:20,maxhp:20,lv:1,exp:0,gold:0,candy:3,kills:0,spares:0};
+const flags={obeyedSmoke:false, seq:0};
+
+/* =======================  敵データ（物語つき）  ======================= */
+function makeEnemies(){return[
+{ key:'char_hone', name:'ホネくん', maxhp:60,hp:60,atk:4, theme:'hone',
+  desc:['とびらの まえに、ちいさな ホネの みはりが いる。','ホネくんは あなたを 見て とびあがった。','「ヒ、ヒトだ ── ヒトが きた……！」'],
+  check:'ホネくん  ── とびらの みはり。\n「ヒトが きたら 世界が こわれる」と\nふるえている。ほんとうは こわいだけ。',
+  flavor:['ホネくんは「こ、こないで」と あとずさった。','ホネくんの ひざが カタカタ なっている。','ホネくんは あなたの ようすを そっと うかがう。','どこかで ホネの きしむ 音が する。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'ホネくんを じっと みた。\nこわくて めを そらされた。\n（こうげき しないと しめせば\n  みちを あけて くれそうだ）'},
+    {label:'なだめる',text:'「だいじょうぶ。なにも しないよ」\nホネくんの ふるえが 少し おさまった。\n「……ヒトって、みんな こわいって\n  きいてた のに……」',effect:e=>{e.prog++;if(e.prog>=2){e.spareReady=true;}}},
+    {label:'はなしをきく',text:'ホネくんの はなしを きいた。\n「ずっと ここで、だれかが くるのを\n  まってた。こわいけど……\n  ほんとは、さびしかったんだ」',effect:e=>{e.prog++;if(e.prog>=2){e.spareReady=true;}}},
+    {label:'おどかす',text:'「ばあっ！」\nホネくんは ますます おびえた。\nやっぱり ヒトは こわい、という\n かおを している……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'ホネくんは あなたが てきで ない と わかった。\n「……きみは、こわくない んだね」\nはじめて わらって、そっと みちを あけてくれた。\n「とびらの おく、みんなに あえると いいね」',
+  attack(b){const hard=this.mock>0?1.6:1.0, soft=this.spareReady?0.4:1.0;
+    if(b.t%Math.floor(26/hard)===0){const x=b.box.x+14+Math.random()*(b.box.w-28);
+      b.bullets.push({x,y:b.box.y-10,w:8,h:18,vy:(2.0+Math.random()*0.8)*hard*soft,sway:Math.random()*6.28,
+        upd(){this.sway+=0.2;this.x+=Math.sin(this.sway)*1.1*soft;this.y+=this.vy;},
+        draw(c){c.fillStyle='#fff';c.fillRect(this.x,this.y,this.w,this.h);c.fillRect(this.x-3,this.y,this.w+6,4);c.fillRect(this.x-3,this.y+this.h-4,this.w+6,4);}});}},
+  turnFrames:240},
+
+{ key:'char_kirari', name:'キラリ', maxhp:80,hp:80,atk:5, theme:'kirari',
+  desc:['だれも いない 客席。ぶたいの 上で','キラリが ひとり、くるくると おどっている。','「あっ ── お客さん！？ ひさしぶり だ ── ！」'],
+  check:'キラリ  ── むかしの 地下劇場の 花形。\nいまは からの 客席に むかって\nまいばん ひとりで おどっている。',
+  flavor:['キラリは とっておきの ポーズを きめた。','キラリは ちらりと あなたの 反応を うかがう。','キラリは「どう？ ねえ、見て くれてる？」','キラリの きらめきが、少し さびしげに ゆれた。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'キラリを じっと みた。\nうれしそうに かがやきを ました。\n（ちゃんと「見て」あげると\n  まんぞくして くれそう）'},
+    {label:'はくしゅ',text:'ぱちぱちと はくしゅした。\nキラリは とくいげに かがやいた。\n「そう！ それ！ もっと 見て！」',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'ほめる',text:'「すごく きれいな おどり だね」\nキラリの こうげきが やわらいだ。\n「……ずっと、だれかに そう\n  いって ほしかった んだ」',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'むしする',text:'わざと めを そらした。\nキラリの きらめきが しぼんで、\nこうげきが かなしく はげしくなった……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'キラリは じゅうぶんに 見て もらえた。\n「……ありがとう。ひとりの 客席でも、\n  だれか ひとり 見て くれるなら、\n  ぼくは また おどれる」\nふかぶかと おじぎを して、ぶたいを おりた。',
+  attack(b){const hard=this.mock>0?1.5:1.0, soft=this.spareReady?0.45:1.0;
+    if(b.t%Math.floor(20/hard)===0){const cx=b.box.x+b.box.w/2,cy=b.box.y+b.box.h/2;
+      const side=(b.t/Math.floor(20/hard))%4|0;let x,y;
+      if(side===0){x=b.box.x;y=b.box.y+Math.random()*b.box.h;}else if(side===1){x=b.box.x+b.box.w;y=b.box.y+Math.random()*b.box.h;}
+      else if(side===2){x=b.box.x+Math.random()*b.box.w;y=b.box.y;}else{x=b.box.x+Math.random()*b.box.w;y=b.box.y+b.box.h;}
+      const a=Math.atan2(cy-y,cx-x),sp=2.4*hard*soft;
+      b.bullets.push({x,y,r:6,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,rot:0,
+        upd(){this.x+=this.vx;this.y+=this.vy;this.rot+=0.2;},draw(c){drawStar(c,this.x,this.y,5,7,3,this.rot);}});}},
+  turnFrames:260},
+
+{ key:'char_wanda', name:'ワンダ', maxhp:70,hp:70,atk:4, theme:'wanda',
+  desc:['とおくで 何かが 走ってくる 音。','大きな けものが、あなたの まわりを','うれしそうに ぐるぐる まわった。「ワン！」'],
+  check:'ワンダ  ── むかし、ぬしを なくした 番犬。\n首には とびらの かぎを かけたまま、\nずっと だれかを まちつづけている。',
+  flavor:['ワンダは ボールを くわえて もってきた。','ワンダは あなたの まわりを まわっている。','ワンダは くーんと 小さく ないた。','ワンダの しっぽが とまらない。'],
+  prog:0,mock:0,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'ワンダを みた。\nうるんだ 目で 見かえして きた。\n首の かぎが、ちゃりんと なった。\n（かまって あげれば よろこびそう）'},
+    {label:'なでる',text:'ワンダの あたまを なでた。\nうっとりして、こうげきを わすれた。\n「……こんなに なでて もらったの、\n  いつ ぶり だろう」という 目だ。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'あそぶ',text:'ボールを なげて あげた。\nワンダは おおよろこびで かけまわった。\nひとりの 時間が、ながすぎたんだ。',effect:e=>{e.prog++;if(e.prog>=2)e.spareReady=true;}},
+    {label:'むしする',text:'ワンダを むしした。\nしゅんと して、こうげきが やけに なった。\nまた ひとりに されると 思った みたいだ……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'ワンダは おなかいっぱいの あいじょうを もらった。\nまんぞくして、あなたの ひざで まるくなった。\n首から とびらの かぎを はずして、\nそっと あなたの 手に のせた。「ワフ」',
+  attack(b){const hard=this.mock>0?1.5:1.0, soft=this.spareReady?0.4:1.0;
+    if(b.t===1||(b.bullets.length<3&&b.t%40===0)){for(let i=0;i<2;i++){
+      b.bullets.push({x:b.box.x+20+Math.random()*(b.box.w-40),y:b.box.y+20+Math.random()*(b.box.h-40),r:7,
+        vx:(Math.random()<.5?-1:1)*(1.6+Math.random())*hard*soft,vy:(Math.random()<.5?-1:1)*(1.6+Math.random())*hard*soft,
+        upd(){this.x+=this.vx;this.y+=this.vy;
+          if(this.x<b.box.x+this.r){this.x=b.box.x+this.r;this.vx*=-1;}if(this.x>b.box.x+b.box.w-this.r){this.x=b.box.x+b.box.w-this.r;this.vx*=-1;}
+          if(this.y<b.box.y+this.r){this.y=b.box.y+this.r;this.vy*=-1;}if(this.y>b.box.y+b.box.h-this.r){this.y=b.box.y+b.box.h-this.r;this.vy*=-1;}},
+        draw(c){c.fillStyle='#fff';c.beginPath();c.arc(this.x,this.y,this.r,0,7);c.fill();c.fillStyle='#000';c.beginPath();c.arc(this.x,this.y,this.r-3,0,7);c.fill();c.fillStyle='#fff';c.beginPath();c.arc(this.x,this.y,2,0,7);c.fill();}});}}},
+  turnFrames:240},
+
+{ key:'char_kakuto', name:'カクト', maxhp:120,hp:120,atk:6, boss:true, theme:'boss',
+  desc:['おそれの とびらの まえ。','きちょうめんな 番人 カクトが','きっちりと、みちを ふさいで 立っている。','「ここから さきは、とおせない」'],
+  check:'カクト  ── とびらの 番人。\n「すべてを きちんと たもたねば\n  おそれが もどって くる」と しんじ、\nみだれを ゆるさず 世界を 整えている。',
+  flavor:['カクトは あなたの たちかたを 採点している。','カクトは ずれた 弾の いちを なおしている。','カクトは「規則 ただしく いこう」と いった。','カクトの かたが、ほんの 少し ふるえた。'],
+  prog:0,mock:0,tidied:false,spareReady:false,
+  acts:[
+    {label:'みつめる',text:'カクトを 観察した。\n弾の ならびが きれいに そろっている。\n気を ぬくと、すぐ なおしに いく。\n（みだれを「せいとん」して から\n  「なだめる」と よさそうだ）'},
+    {label:'せいとん',text:'ちらかった 空間を きちんと そろえた。\nカクトは「……わるく、ない」と うなずいた。\n「みだれが あると、おちつかない んだ」',effect:e=>{e.tidied=true;}},
+    {label:'なだめる',text:e=>e.tidied?'「もう じゅうぶん きちんと してるよ。\n  少しくらい みだれても、\n  だいじょうぶ」\nカクトの はりつめた かたが、ふっと ゆるんだ。':'なだめようとした。\nだが みだれが 気になって おちつかない。\n（さきに せいとんが いりそうだ）',effect:e=>{if(e.tidied){e.prog++;if(e.prog>=1)e.spareReady=true;}}},
+    {label:'ちゃかす',text:'「かたい なー」と ちゃかした。\nカクトの こうげきが きちっと はげしくなった……。',effect:e=>{e.mock++;}},
+  ],
+  spareText:'カクトは きちんと むすばれた きもちで、ふっと わらった。\n「……ありがとう。ずっと、こわかったんだ。\n  みだれる ことが。わすれられる ことが。\n  でも きみは、みだれた ぼくでも\n  見て くれた」\nれいぎ 正しく おじぎを して、\nゆっくりと、とびらに 手を かけた。',
+  attack(b){const hard=this.mock>0?1.4:1.0, soft=this.spareReady?0.5:1.0;
+    const phase=Math.floor(b.t/90)%3;
+    if(phase<2){if(b.t%Math.floor(30/hard)===0){const fromLeft=(Math.floor(b.t/Math.floor(30/hard)))%2===0;const rows=4;
+      for(let i=0;i<rows;i++){const y=b.box.y+15+i*(b.box.h-30)/(rows-1);
+        b.bullets.push({x:fromLeft?b.box.x-10:b.box.x+b.box.w+10,y,w:16,h:6,vx:(fromLeft?1:-1)*2.4*hard*soft,off:true,
+          upd(){this.x+=this.vx;},draw(c){c.fillStyle='#fff';c.fillRect(this.x,this.y-3,this.w,this.h);}});}}}
+    else{if(b.t%70===5){const blue=Math.random()<0.5;
+      b.bullets.push({color:blue?'blue':'orange',life:46,big:true,box:b.box,
+        upd(){this.life--;},draw(c){c.globalAlpha=0.85;c.strokeStyle=this.color==='blue'?'#39f':'#f93';c.lineWidth=6;
+          const cy=this.box.y+this.box.h/2;c.strokeRect(this.box.x+4,cy-14,this.box.w-8,28);c.globalAlpha=1;}});}}},
+  turnFrames:300},
+];}
+
+function drawStar(c,cx,cy,sp,outer,inner,rot){c.fillStyle='#fff';c.beginPath();
+  for(let i=0;i<sp*2;i++){const r=i%2===0?outer:inner,a=rot+i*Math.PI/sp,x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;i===0?c.moveTo(x,y):c.lineTo(x,y);}
+  c.closePath();c.fill();}
+
+/* =======================  シナリオ（探索 & カットシーン）  ======================= */
+/* 進行の順序 */
+const SEQ=['intro','awaken','room_hone','battle_hone','after_hone','room_kirari','battle_kirari','after_kirari','room_wanda','battle_wanda','after_wanda','gate_room','battle_kakuto','ending'];
+let seqPos=0;
+function advance(){ seqPos++; runSeq(); }
+function runSeq(){
+  const s=SEQ[seqPos];
+  if(s==='intro') sceneIntro();
+  else if(s==='awaken') sceneAwaken();
+  else if(s==='room_hone') roomHone();
+  else if(s==='battle_hone') startBattle(0);
+  else if(s==='after_hone') afterHone();
+  else if(s==='room_kirari') roomKirari();
+  else if(s==='battle_kirari') startBattle(1);
+  else if(s==='after_kirari') afterKirari();
+  else if(s==='room_wanda') roomWanda();
+  else if(s==='battle_wanda') startBattle(2);
+  else if(s==='after_wanda') afterWanda();
+  else if(s==='gate_room') gateRoom();
+  else if(s==='battle_kakuto') startBattle(3);
+  else if(s==='ending') sceneEnding();
+}
+
+/* ---- カットシーン: 画像 + ナレーション ページ ---- */
+let cut={img:null, pages:[], idx:0, after:null, choice:null, dark:0.55};
+function cutscene(img,pages,after,opt){
+  cut.img=img; cut.pages=pages.slice(); cut.idx=0; cut.after=after||advance;
+  cut.choice=(opt&&opt.choice)||null; cut.dark=(opt&&opt.dark!=null)?opt.dark:0.55;
+  cutText=''; cutShown=0; loadPage();
+  state=ST.CUT; clearPressed();
+}
+let cutText='',cutShown=0;
+function loadPage(){ cutText=cut.pages[cut.idx]||''; cutShown=0; }
+
+/* ---- 物語本文 ---- */
+function sceneIntro(){
+  playTheme('title');
+  cutscene('title_bg',[
+    'むかし むかし。',
+    '地上と 地下は、「ひかりの かいだん」で\nつながって いた。',
+    '地上に すむ ヒトと、\n地下に すむ 「おとぎ」 ── \nゆめから うまれた もの たちは、\nともに くらして いた。',
+    'やがて ヒトは、じぶんたちと ちがう\nおとぎを 「こわい」と 思うように なった。',
+    'そして、かいだんの 入り口を\n「おそれの とびら」で とじた。\nとびらには、とじた 目が きざまれている。',
+    '見なければ、こわく ない。\nそうして ヒトは、おとぎを わすれた。',
+    'とびらの 内がわに のこされた おとぎたちは、\nなぜ こわがられたのかも わすれ、\nただ しずかに、だれかを まっている。',
+    'これは ── あなたが、その とびらの\n むこうがわへ おちて しまう、ものがたり。',
+  ], ()=>advance(), {dark:0.45});
+}
+function sceneAwaken(){
+  playTheme('explore');
+  cutscene('title_bg',[
+    '……いたい。\nあなたは、つめたい 石の上で 目を さました。',
+    'はるか 頭上の あなから、\nほそい ひかりが ひとすじ さしている。\nそこから おちて きた らしい。',
+    'ここは、地下。\nヒトの だれも 知らない、わすれられた 世界。',
+  ], ()=>smokeIntro(), {dark:0.4});
+}
+function smokeIntro(){
+  cutscene('char_smoke',[
+    'ふわり、と けむりが たちのぼった。\nふたつの 目が、にやりと わらう。',
+    '「やあ、おちて きた 子。\n  ぼくは ケムリ。\n  この 地下の こと、おしえて あげる」',
+    '「いいかい。ここでは ──\n  であった ものから ちからを うばった 者だけが、\n  とびらを こえて 帰れる んだ」',
+    '「さあ、まずは れんしゅう。\n  であう やつらを、ぜんぶ たおして\n  EXP を あつめな。それが この 世界の ルールさ」',
+  ], ()=>smokeChoice(), {dark:0.5});
+}
+function smokeChoice(){
+  cut.img='char_smoke'; cut.pages=['「── どうする？」']; cut.idx=0; loadPage();
+  cut.choice={ q:'ケムリの いう とおりに する？',
+    opts:[
+      {label:'したがう', after:()=>{flags.obeyedSmoke=true; cutscene('char_smoke',[
+        '「くくっ、いい子 だ。\n  ちからこそ、すべて。\n  ……たのしみに してるよ」',
+        'ケムリは、まんぞくげに きえた。\nなんだか、いやな よかんが する。'],()=>advance(),{dark:0.5});}},
+      {label:'ことわる', after:()=>{flags.obeyedSmoke=false; cutscene('char_smoke',[
+        '「……へえ。うばわ ない、って?」',
+        '「ふうん。……つまらない 子だな」',
+        'ケムリは、すっと 目を ほそめて きえた。\n「ま、いいさ。どう せ ここでは、\n  やさしさ なんて 何の 役にも たたない」'],()=>advance(),{dark:0.5});}},
+    ]};
+  state=ST.CUT; clearPressed();
+}
+/* ---- 探索ルーム ---- */
+function roomHone(){
+  makeWalkRoom({
+    bg:null, title:'とびらへ つづく みち',
+    npcs:[
+      {x:200,y:200,label:'はりがみ',img:null,
+       lines:['かべに、ふるい はりがみ。','『ヒトを 見たら にげろ。\n  ヒトは 世界を こわす』','……ずいぶん、こわがられて いるみたい。']},
+    ],
+    saveAt:{x:120,y:300},
+    exitText:'ホネくんが、みちを ふさいで いる ──',
+    onExit:()=>advance(),
+  });
+}
+function afterHone(){
+  const killed=enemies[0].hp<=0;
+  if(killed){ playTheme('hollow'); cutscene('char_hone',[
+    'ホネくんは、しずかに くずれて いった。',
+    'EXP が 20 入った。\nだが、なぜか むねが つめたい。',
+    'みはりの いない とびらへの みちは、\nしんと しずまって いた。'],()=>advance(),{dark:0.5}); }
+  else { playTheme('explore'); cutscene('save_flame',[
+    'ホネくんは、はじめての ともだちが\nできた みたいに、手を ふって くれた。',
+    '「とびらの おく、みんな やさしいよ。\n  ……たぶん。ぼくは でた こと ないけど」',
+    'みちの わきに、ちいさな ほのおが ゆれている。\nさわると、こころが すっと おちつく。「ともしび」だ。'],()=>advance(),{dark:0.5}); }
+}
+function roomKirari(){
+  makeWalkRoom({title:'だれも いない 地下劇場',
+    npcs:[{x:420,y:180,label:'ポスター',lines:['やぶれた こうえん ポスター。','『今夜も 満員 ── キラリ 大劇場』','……日づけは、ずっと むかしの もの だ。']}],
+    saveAt:{x:130,y:300},
+    exitText:'ぶたいの 上、スポットライトの 中に\nだれかが いる ──',
+    onExit:()=>advance()});
+}
+function afterKirari(){
+  const killed=enemies[1].hp<=0;
+  if(killed){ playTheme('hollow'); cutscene('char_kirari',[
+    'スポットライトが、ふっと きえた。',
+    'EXP が 20 入った。\nもう、この ぶたいで おどる ものは いない。',
+    'からの 客席だけが、しんと のこされた。'],()=>advance(),{dark:0.5}); }
+  else { playTheme('explore'); cutscene('save_flame',[
+    'キラリは、あなた ひとりの ために\nもう いちど、とびきりの おどりを みせた。',
+    '「客が ひとりでも、ぼくは スターさ。\n  見て くれて、ありがとう」',
+    'ぶたいの そでに、ともしびが ゆれている。'],()=>advance(),{dark:0.5}); }
+}
+function roomWanda(){
+  makeWalkRoom({title:'かぎの ない みはり小屋',
+    npcs:[{x:400,y:260,label:'いぬ小屋',lines:['ふるい いぬ小屋。','中に、ボロボロの ボールと、\n だれかの しゃしんが おいて ある。','『また あそぼうね』と、書いて ある。']}],
+    saveAt:{x:130,y:200},
+    exitText:'大きな けものが、しっぽを ふって\nあなたを まって いる ──',
+    onExit:()=>advance()});
+}
+function afterWanda(){
+  const killed=enemies[2].hp<=0;
+  if(killed){ playTheme('hollow'); cutscene('char_wanda',[
+    'ワンダは、くーん、と 一度 ないて、うごかなく なった。',
+    'EXP が 20 入った。\n首の かぎが、からん、と 地に おちた。',
+    'あなたは、かぎを ひろった。\nまつ ものは、もう いない。'],()=>advance(),{dark:0.5}); }
+  else { playTheme('explore'); cutscene('save_flame',[
+    'ワンダは、あなたの 手に かぎを のせて、\nまんぞくげに ねむって しまった。',
+    'ながい ながい あいだ、\nだれかを まって いた のだろう。',
+    'これで、とびらを ひらく かぎが そろった。'],()=>advance(),{dark:0.5}); }
+}
+function gateRoom(){
+  playTheme('explore');
+  cutscene('room_gate',[
+    'おそれの とびら。',
+    'とじた 目が きざまれた、\nとほうも なく 大きな 石の とびら。',
+    'その まえに、きちょうめんな 番人 ──\nカクトが、きっちりと 立って いた。',
+    '「ここから さきは、とおせない。\n  この とびらが ひらけば、\n  また あの "おそれ" が もどって くる」',
+    flags.obeyedSmoke
+      ? '「……きみの 目。ケムリと おなじ 目を している。\n  うばう 目だ。とおす わけには いかない」'
+      : '「……きみは、すこし ちがう 目を している。\n  だが、それでも とおす わけには いかない」',
+  ], ()=>advance(), {dark:0.45});
+}
+
+/* ---- エンディング ---- */
+function sceneEnding(){
+  const k=player.kills, s=player.spares;
+  if(k===0){
+    playTheme('light');
+    cutscene('ending_light',[
+      'おそれの とびらに、かぎを さしこむ。',
+      'すると ── とびらに きざまれた\n「とじた 目」が、ゆっくりと ひらいた。',
+      'とびらは、思い出した。\nおとぎは こわい ものでは なかった。\nただ、わすれられた だけ だった と。',
+      'ひかりの かいだんが、やみの 中から\nふたたび、地上へ むかって のびて いく。',
+      'ふりかえると、ホネくん、キラリ、ワンダ、カクト ──\nであった みんなが、てを ふって いた。',
+      'あなたは、ひとりも きずつけ なかった。\nLV は 1 の まま。\nでも、なにも 失わ なかった。',
+      '「つよさ」とは、たおした 数では なかった。\n   ── やさしい地下 ──\n      おわり',
+      'Z で タイトルへ',
+    ], ()=>backToTitle(), {dark:0.3});
+  } else if(k>=enemies.length){
+    playTheme('hollow');
+    cutscene('ending_hollow',[
+      'かぎは、もう いらなかった。',
+      'あなたは ちからで、とびらを たたきこわした。',
+      'ひかりの かいだんが あらわれる。\nだが ── ふりかえっても、だれも いない。',
+      'EXP。それは あなたが あたえた\n「いたみ」の りょう だったのかも しれない。\nLV。こころが どれだけ にぶく なったかの めもり。',
+      '地下は、からっぽ に なった。\nもう、だれの こえも 聞こえ ない。',
+      'あなたは 地上へ 帰れる。\nけれど、何を 持って 帰れた のだろう。',
+      '   ── やさしい地下 ──\n      むなしい おわり',
+      'Z で タイトルへ',
+    ], ()=>backToTitle(), {dark:0.45});
+  } else {
+    playTheme('light');
+    cutscene('ending_light',[
+      'とびらは、半分 だけ ひらいた。',
+      'たすけた もの: '+s+'たい。\nけせなかった もの: '+k+'たい。',
+      'すくえた いのちも、\nもう もどらない いのちも あった。',
+      'あなたは、えらべた。\nたたかう ことも、ゆるす ことも。\nだから その えらびには、いみが あった。',
+      'ひかりの かいだんを のぼり ながら、\nあなたは ふりかえる。\nつぎは、どう えらぶ だろう?',
+      '   ── やさしい地下 ──\n     まじりあう おわり',
+      'Z で タイトルへ',
+    ], ()=>backToTitle(), {dark:0.4});
+  }
+}
+function backToTitle(){ state=ST.TITLE; playTheme('title'); clearPressed(); }
+
+/* =======================  探索（ウォーク）ルーム  ======================= */
+const room={cfg:null, px:60, py:240, anim:0, near:null};
+function makeWalkRoom(cfg){
+  room.cfg=cfg; room.px=60; room.py=240; room.anim=0; room.near=null;
+  room.saved=false;
+  state=ST.WALK; clearPressed();
+  // ルームに入った時のタイトル表示
+  roomBanner=cfg.title||''; roomBannerT=160;
+}
+let roomBanner='',roomBannerT=0;
+function updateWalk(){
+  const c=room.cfg; if(!c)return;
+  const sp=3; let mvx=0,mvy=0;
+  if(keys.left)mvx-=sp; if(keys.right)mvx+=sp; if(keys.up)mvy-=sp; if(keys.down)mvy+=sp;
+  room.px+=mvx; room.py+=mvy;
+  room.px=Math.max(40,Math.min(W-40,room.px)); room.py=Math.max(120,Math.min(H-90,room.py));
+  if(mvx||mvy) room.anim+=0.2;
+  if(roomBannerT>0)roomBannerT--;
+  // 近接判定
+  room.near=null;
+  for(const n of c.npcs||[]){ if(Math.hypot(room.px-n.x,room.py-n.y)<46){ room.near={type:'npc',obj:n}; } }
+  if(c.saveAt && Math.hypot(room.px-c.saveAt.x,room.py-c.saveAt.y)<46){ room.near={type:'save'}; }
+  // 出口（右はし）
+  const exitX=W-50;
+  if(room.px>exitX-10){ room.near={type:'exit'}; }
+  if(consume('confirm') && room.near){
+    if(room.near.type==='npc'){ se('confirm'); say(splitLines(room.near.obj.lines.join('\n')),()=>{state=ST.WALK;clearPressed();},true); }
+    else if(room.near.type==='save'){ se('save'); doSave(); }
+    else if(room.near.type==='exit'){ se('confirm'); const ex=c.onExit;
+      if(c.exitText){ say(splitLines(c.exitText),()=>{ ex&&ex(); },true); } else { ex&&ex(); } }
+  }
+}
+function doSave(){
+  player.hp=player.maxhp;
+  say(['ともしびに ふれた。','けつい が、こころに ともる。','(HPが かいふくし、この あたりを\n 覚えた)'],()=>{state=ST.WALK;clearPressed();},true);
+}
+function drawWalk(){
+  const c=room.cfg;
+  // 背景
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  // ゆかの格子（地下っぽさ）
+  ctx.strokeStyle='#0d0d0d'; ctx.lineWidth=1;
+  for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,110);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=110;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  ctx.strokeStyle='#222'; ctx.lineWidth=2; ctx.strokeRect(20,108,W-40,H-118);
+  // 出口の矢印
+  ctx.fillStyle=(room.near&&room.near.type==='exit')?'#ff3':'#555';
+  txt('▶',W-40,H/2-20,28,(room.near&&room.near.type==='exit')?'#ff3':'#555','center');
+  txt('みち',W-40,H/2+12,12,'#555','center');
+  // NPC
+  for(const n of c.npcs||[]){
+    ctx.fillStyle='#888'; ctx.fillRect(n.x-12,n.y-16,24,30);
+    ctx.fillStyle='#bbb'; ctx.fillRect(n.x-10,n.y-14,20,10);
+    txt(n.label,n.x,n.y+18,11,(room.near&&room.near.obj===n)?'#ff3':'#888','center');
+  }
+  // セーブポイント（ともしび）
+  if(c.saveAt){ const f=c.saveAt; const fl=Math.sin(Date.now()*0.01)*3;
+    ctx.fillStyle=(room.near&&room.near.type==='save')?'#ff6':'#fc3';
+    ctx.beginPath(); ctx.ellipse(f.x,f.y+fl,7,12,0,0,7); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(f.x,f.y+4+fl,3,6,0,0,7); ctx.fill();
+    txt('ともしび',f.x,f.y+22,11,(room.near&&room.near.type==='save')?'#ff6':'#a80','center'); }
+  // プレイヤー（ハート）
+  const bob=Math.sin(room.anim)*2;
+  drawHeart(room.px,room.py+bob,'#f00',7);
+  // 操作ヒント
+  if(room.near){ const m=room.near.type==='exit'?'すすむ':room.near.type==='save'?'ともしびに ふれる':'しらべる';
+    txt('Z: '+m,room.px,room.py-26,12,'#ff3','center'); }
+  // バナー
+  if(roomBannerT>0){ ctx.globalAlpha=Math.min(1,roomBannerT/40); txt('── '+roomBanner+' ──',W/2,60,20,'#fff','center'); ctx.globalAlpha=1; }
+  // 下部ヒント
+  txt('↑↓←→ あるく   Z しらべる/すすむ',W/2,H-24,12,'#555','center');
+}
+
+/* =======================  戦闘  ======================= */
+let enemies=[],eIndex=0,enemy=null;
+const ST={TITLE:'title',CUT:'cut',WALK:'walk',MENU:'menu',SUB:'sub',FIGHTBAR:'fightbar',DIALOG:'dialog',ENEMY:'enemy',RESULT:'result',GAMEOVER:'gameover'};
+let state=ST.TITLE;
+let menuIndex=0; const MENU=['たたかう','こうどう','どうぐ','みのがす'];
+let subType='',subIndex=0,subOptions=[];
+let dialogLines=[],dialogText='',dialogShown=0,dialogTimer=0,afterDialog=null,dialogReturnWalk=false;
+const bphase={active:false,t:0,frames:0,bullets:[],box:{x:0,y:0,w:0,h:0}};
+const soul={x:0,y:0,invuln:0};
+let shake=0,flash=0,fightHitFlash=0,fightBarX=0,fightBarDir=1,fightBarLock=-1,resultTimer=0,resultNext=null;
+
+function say(lines,after,fromWalk){ dialogReturnWalk=!!fromWalk; dialogLines=Array.isArray(lines)?lines.slice():[lines]; nextDialog(after); }
+function nextDialog(after){
+  if(dialogLines.length===0){ if(after)after(); else toMenu(); return; }
+  dialogText=dialogLines.shift(); dialogShown=0; dialogTimer=0;
+  afterDialog=(dialogLines.length>0)?()=>nextDialog(after):(after||toMenu);
+  state=ST.DIALOG;
+}
+function splitLines(t){return t.split('\n');}
+function toMenu(){ if(enemy&&enemy.hp<=0)return; state=ST.MENU; menuIndex=0; clearPressed(); }
+
+function startBattle(i){
+  eIndex=i; enemy=enemies[i];
+  bphase.box={x:W/2-110,y:255,w:220,h:135};
+  playTheme(enemy.theme);
+  say(enemy.desc, ()=>toMenu());
+}
+function chooseMenu(){ se('confirm'); const cmd=MENU[menuIndex];
+  if(cmd==='たたかう')startFightBar(); else if(cmd==='こうどう')openSub('act');
+  else if(cmd==='どうぐ')openSub('item'); else openSub('mercy'); }
+function openSub(type){ subType=type; subIndex=0;
+  if(type==='act')subOptions=enemy.acts.map(a=>a.label);
+  else if(type==='item')subOptions=player.candy>0?['いやしキャンディ ('+player.candy+')']:['（どうぐが ない）'];
+  else subOptions=['みのがす'+(enemy.spareReady?' ★':''),'にげる'];
+  state=ST.SUB; clearPressed(); }
+function chooseSub(){ se('confirm');
+  if(subType==='act'){ const a=enemy.acts[subIndex]; if(a.effect)a.effect(enemy);
+    const t=(typeof a.text==='function')?a.text(enemy):a.text; say(splitLines(t),()=>enemyTurn()); }
+  else if(subType==='item'){ if(player.candy>0){ player.candy--; se('heal'); const heal=10; player.hp=Math.min(player.maxhp,player.hp+heal);
+      say(['いやしキャンディを たべた。','HPが '+heal+' かいふくした！'],()=>enemyTurn()); }
+    else say(['もちものが ない。'],()=>toMenu()); }
+  else { if(subIndex===0){ if(enemy.spareReady){ player.spares++; se('spare'); playTheme('peace');
+        say(splitLines(enemy.spareText),()=>winBattle('spare')); }
+      else say(['まだ みのがせ そうに ない。','（あいての こころを ほぐして みよう）'],()=>enemyTurn()); }
+    else say(['だっしゅつ できない！','この あいてと むきあう しか ない。'],()=>enemyTurn()); }
+}
+function startFightBar(){ state=ST.FIGHTBAR; fightBarX=bphase.box.x+6; fightBarDir=1; fightBarLock=-1; clearPressed(); }
+function resolveFight(){ const box=bphase.box,center=box.x+box.w/2,dist=Math.abs(fightBarLock-center);
+  const acc=Math.max(0,1-dist/(box.w/2)),dmg=Math.round(12+acc*22);
+  enemy.hp-=dmg; fightHitFlash=18; shake=8; se('hit');
+  if(enemy.hp<=0){ enemy.hp=0; player.kills++; player.exp+=enemy.boss?60:20; player.gold+=8;
+    say([enemy.name+'に '+dmg+'の ダメージ！',enemy.name+'を たおして しまった……。'],()=>winBattle('kill')); }
+  else say([enemy.name+'に '+dmg+'の ダメージ！'],()=>enemyTurn()); }
+function enemyTurn(){ if(enemy.hp<=0)return; state=ST.ENEMY; bphase.active=true; bphase.t=0; bphase.bullets=[];
+  bphase.frames=enemy.turnFrames; soul.x=bphase.box.x+bphase.box.w/2; soul.y=bphase.box.y+bphase.box.h/2; soul.invuln=0; clearPressed(); }
+function endEnemyTurn(){ bphase.active=false; const fl=enemy.flavor[Math.floor(Math.random()*enemy.flavor.length)]; say([fl],()=>toMenu()); }
+function winBattle(kind){ state=ST.RESULT; resultTimer=70; flash=12; resultNext=()=>advance(); }
+function gameOver(){ state=ST.GAMEOVER; flash=20; shake=14; playTheme('gameover'); clearPressed(); }
+
+/* =======================  ループ  ======================= */
+function update(){
+  if(shake>0){shake*=0.85;if(shake<0.5)shake=0;}
+  if(flash>0)flash--; if(fightHitFlash>0)fightHitFlash--;
+  switch(state){
+    case ST.TITLE:
+      if(consume('confirm')){ ensureAudio(); resetGame(); seqPos=0; runSeq(); }
+      break;
+    case ST.CUT: updateCut(); break;
+    case ST.WALK: updateWalk(); break;
+    case ST.DIALOG:
+      dialogTimer++;
+      if(dialogShown<dialogText.length){ dialogShown+=(keys.confirm?2:1); if(dialogShown%3===0)se('text'); if(dialogShown>dialogText.length)dialogShown=dialogText.length; }
+      if(consume('confirm')){ if(dialogShown<dialogText.length)dialogShown=dialogText.length;
+        else { const a=afterDialog; afterDialog=null; if(a)a(); } }
+      break;
+    case ST.MENU:
+      if(consume('left')){menuIndex=(menuIndex+MENU.length-1)%MENU.length;se('select');}
+      if(consume('right')){menuIndex=(menuIndex+1)%MENU.length;se('select');}
+      if(consume('confirm'))chooseMenu();
+      break;
+    case ST.SUB:
+      if(consume('up')){subIndex=(subIndex+subOptions.length-1)%subOptions.length;se('select');}
+      if(consume('down')){subIndex=(subIndex+1)%subOptions.length;se('select');}
+      if(consume('cancel')){se('cancel');toMenu();}
+      if(consume('confirm'))chooseSub();
+      break;
+    case ST.FIGHTBAR:{const box=bphase.box;
+      if(fightBarLock<0){ fightBarX+=fightBarDir*7;
+        if(fightBarX>box.x+box.w-6){fightBarX=box.x+box.w-6;fightBarDir=-1;}
+        if(fightBarX<box.x+6){fightBarX=box.x+6;fightBarDir=1;}
+        if(consume('confirm')){fightBarLock=fightBarX;resolveFight();} }
+      break;}
+    case ST.ENEMY: updateBulletPhase(); break;
+    case ST.RESULT: if(--resultTimer<=0){const n=resultNext;resultNext=null;if(n)n();} break;
+    case ST.GAMEOVER: if(consume('confirm')){backToTitle();} break;
+  }
+  clearPressed();
+}
+function updateCut(){
+  if(cutShown<cutText.length){ cutShown+=(keys.confirm?3:1); if(cutShown%3===0)se('text'); if(cutShown>cutText.length)cutShown=cutText.length; }
+  if(cut.choice && cutShown>=cutText.length && cut.idx>=cut.pages.length-1){
+    // 選択肢モード
+    if(consume('up')||consume('down')){ cut.choice.sel=(cut.choice.sel?0:1); se('select'); }
+    if(consume('confirm')){ se('confirm'); const o=cut.choice.opts[cut.choice.sel||0]; const f=o.after; cut.choice=null; f(); }
+    return;
+  }
+  if(consume('confirm')){
+    if(cutShown<cutText.length){ cutShown=cutText.length; return; }
+    if(cut.idx<cut.pages.length-1){ cut.idx++; loadPage(); }
+    else { const a=cut.after; cut.after=null; if(a)a(); }
+  }
+}
+function resetGame(){ Object.assign(player,{hp:20,maxhp:20,lv:1,exp:0,gold:0,candy:3,kills:0,spares:0});
+  Object.assign(flags,{obeyedSmoke:false,seq:0}); enemies=makeEnemies(); eIndex=0; }
+
+function updateBulletPhase(){
+  const b=bphase,box=b.box; b.t++;
+  const sp=2.7; let mvx=0,mvy=0;
+  if(keys.left)mvx-=sp;if(keys.right)mvx+=sp;if(keys.up)mvy-=sp;if(keys.down)mvy+=sp;
+  soul.x+=mvx; soul.y+=mvy; const pad=6;
+  soul.x=Math.max(box.x+pad,Math.min(box.x+box.w-pad,soul.x));
+  soul.y=Math.max(box.y+pad,Math.min(box.y+box.h-pad,soul.y));
+  const moving=(mvx!==0||mvy!==0);
+  enemy.attack(b);
+  if(soul.invuln>0)soul.invuln--;
+  for(let i=b.bullets.length-1;i>=0;i--){const bl=b.bullets[i]; bl.upd&&bl.upd();
+    if(bl.big){ if(bl.life<=0){b.bullets.splice(i,1);continue;} }
+    else { const m=40; if(bl.x<box.x-m||bl.x>box.x+box.w+m||bl.y<box.y-m||bl.y>box.y+box.h+m){ if(bl.off||bl.y>box.y-5){b.bullets.splice(i,1);continue;} } }
+    if(soul.invuln<=0){ let hit=false;
+      if(bl.big){ const cy=box.y+box.h/2,inBand=soul.y>cy-14&&soul.y<cy+14;
+        if(inBand){ if(bl.color==='blue'&&moving)hit=true; if(bl.color==='orange'&&!moving)hit=true; } }
+      else if(bl.r!==undefined){ const dx=soul.x-bl.x,dy=soul.y-bl.y; if(dx*dx+dy*dy<(bl.r+4)*(bl.r+4))hit=true; }
+      else { if(soul.x>bl.x-2&&soul.x<bl.x+bl.w+2&&soul.y>bl.y-2&&soul.y<bl.y+bl.h+2)hit=true; }
+      if(hit){ damagePlayer(enemy.atk); soul.invuln=30; } }
+  }
+  if(b.t>=b.frames && b.bullets.filter(x=>!x.big).length===0) endEnemyTurn();
+  else if(b.t>=b.frames+90) endEnemyTurn();
+}
+function damagePlayer(d){ player.hp-=d; shake=8; flash=6; se('hurt'); if(player.hp<=0){player.hp=0;gameOver();} }
+
+/* =======================  描画  ======================= */
+function draw(){
+  ctx.save(); if(shake>0)ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);
+  ctx.fillStyle='#000'; ctx.fillRect(-20,-20,W+40,H+40);
+  switch(state){
+    case ST.TITLE: drawTitle(); break;
+    case ST.CUT: drawCut(); break;
+    case ST.WALK: drawWalk(); break;
+    case ST.GAMEOVER: drawGameOver(); break;
+    default: drawBattle();
+  }
+  if(flash>0){ctx.fillStyle='rgba(255,255,255,'+(flash/30)+')';ctx.fillRect(-20,-20,W+40,H+40);}
+  // ミュート表示
+  if(muted){ txt('♪×',W-22,8,14,'#555','right'); }
+  ctx.restore();
+}
+function txt(s,x,y,size,color,align){ ctx.fillStyle=color||'#fff'; ctx.font=size+'px "Courier New",monospace'; ctx.textAlign=align||'left'; ctx.fillText(s,x,y); ctx.textAlign='left'; }
+function drawImgCover(img,dark){ if(img&&img.complete&&img.naturalWidth){ const s=Math.max(W/img.naturalWidth,H/img.naturalHeight);
+    const w=img.naturalWidth*s,h=img.naturalHeight*s; ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h); }
+  ctx.fillStyle='rgba(0,0,0,'+dark+')'; ctx.fillRect(0,0,W,H); }
+function drawImgFit(img,cx,cy,maxw,maxh){ if(!img||!img.complete||!img.naturalWidth)return;
+  const s=Math.min(maxw/img.naturalWidth,maxh/img.naturalHeight),w=img.naturalWidth*s,h=img.naturalHeight*s;
+  ctx.drawImage(img,cx-w/2,cy-h/2,w,h); }
+
+function drawTitle(){
+  drawImgCover(IMG.title_bg,0.55);
+  txt('やさしい地下',W/2,118,46,'#fff','center');
+  txt('THE  GENTLE  UNDERGROUND',W/2,176,15,'#888','center');
+  txt('だれも たおさなくて いい RPG。',W/2,250,18,'#ccc','center');
+  txt('あいての HP では なく、こころを みる。',W/2,280,15,'#888','center');
+  if(Math.floor(Date.now()/500)%2===0) txt('Z / Enter で はじめる',W/2,360,18,'#fff','center');
+  txt('FIGHT   ACT   ITEM   MERCY',W/2,420,14,'#555','center');
+  txt('M: 音楽 ON/OFF',W/2,446,12,'#444','center');
+}
+function drawCut(){
+  drawImgCover(cut.img?IMG[cut.img]:null, cut.dark);
+  // 文字ボックス
+  const bx=40,by=H-150,bw=W-80,bh=110;
+  ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(bx,by,bw,bh);
+  ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.strokeRect(bx,by,bw,bh);
+  ctx.fillStyle='#fff'; ctx.font='17px "Courier New",monospace'; ctx.textAlign='left';
+  wrapText(cutText.substring(0,cutShown),bx+18,by+16,bw-36,24);
+  if(cut.choice && cutShown>=cutText.length && cut.idx>=cut.pages.length-1){
+    const sel=cut.choice.sel||0;
+    txt('* '+cut.choice.q,bx+18,by-78,15,'#ff3','left');
+    for(let i=0;i<cut.choice.opts.length;i++){ const yy=by-50+i*24;
+      txt((i===sel?'> ':'  ')+cut.choice.opts[i].label,bx+30,yy,16,i===sel?'#ff3':'#aaa','left'); }
+  } else if(cutShown>=cutText.length && Math.floor(Date.now()/400)%2===0){
+    txt('▼',bx+bw-26,by+bh-28,16,'#fff','left');
+  }
+  // ページ数
+  if(cut.pages.length>1) txt((cut.idx+1)+'/'+cut.pages.length,bx+bw-8,by-2,11,'#666','right');
+}
+function wrapText(text,x,y,maxw,lh){ let line='',yy=y;
+  for(const ch of text){ if(ch==='\n'){ctx.fillText(line,x,yy);line='';yy+=lh;continue;}
+    const test=line+ch; if(ctx.measureText(test).width>maxw){ctx.fillText(line,x,yy);line=(ch===' '?'':ch);yy+=lh;} else line=test; }
+  ctx.fillText(line,x,yy); }
+
+function drawBattle(){
+  // 敵 画像
+  if(enemy){ const sh=enemy.spareReady?0:(state===ST.ENEMY?Math.sin(bphase.t*0.3)*3:0);
+    drawImgFit(IMG[enemy.key], W/2+sh, 130, 200, 180);
+    const col=enemy.spareReady?'#ff3':'#fff';
+    txt('* '+enemy.name+(enemy.spareReady?'   （みのがせる！）':''),W/2,232,17,col,'center'); }
+  if(state===ST.DIALOG||state===ST.RESULT) drawDialogBox();
+  else if(state===ST.ENEMY||state===ST.FIGHTBAR){ drawBox(); if(state===ST.ENEMY)drawBulletsAndSoul(); else drawFightBar(); }
+  else { drawBox(); }
+  drawHUD();
+  if(state===ST.MENU)drawMenu();
+  if(state===ST.SUB)drawSub();
+}
+function drawBox(){const b=bphase.box;ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.strokeRect(b.x,b.y,b.w,b.h);}
+function drawBulletsAndSoul(){ const b=bphase.box; ctx.save(); ctx.beginPath(); ctx.rect(b.x-2,b.y-2,b.w+4,b.h+4); ctx.clip();
+  for(const bl of bphase.bullets)bl.draw&&bl.draw(ctx); ctx.restore();
+  if(soul.invuln%6<3)drawHeart(soul.x,soul.y,soul.invuln>0?'#a00':'#f00',5); }
+function drawHeart(x,y,col,s){ s=s||5; ctx.fillStyle=col; ctx.beginPath();
+  ctx.moveTo(x,y+s*0.7);
+  ctx.bezierCurveTo(x,y-s*0.2,x-s,y-s*0.4,x-s,y+s*0.2);
+  ctx.bezierCurveTo(x-s,y+s*0.9,x,y+s*1.1,x,y+s*1.5);
+  ctx.bezierCurveTo(x,y+s*1.1,x+s,y+s*0.9,x+s,y+s*0.2);
+  ctx.bezierCurveTo(x+s,y-s*0.4,x,y-s*0.2,x,y+s*0.7); ctx.fill(); }
+function drawFightBar(){const b=bphase.box;
+  ctx.strokeStyle='#ff3';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(b.x+b.w/2,b.y+8);ctx.lineTo(b.x+b.w/2,b.y+b.h-8);ctx.stroke();
+  ctx.fillStyle='#fff';ctx.fillRect((fightBarLock<0?fightBarX:fightBarLock)-3,b.y+6,6,b.h-12);
+  txt('Z で きる！(中央ほど 大ダメージ)',b.x+b.w/2,b.y+b.h+10,13,'#888','center');}
+function drawDialogBox(){const b=bphase.box;ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.strokeRect(b.x,b.y,b.w,b.h);
+  ctx.fillStyle='#fff';ctx.font='15px "Courier New",monospace';ctx.textAlign='left';
+  wrapText('* '+dialogText.substring(0,dialogShown),b.x+12,b.y+14,b.w-24,20);
+  if(state===ST.DIALOG&&dialogShown>=dialogText.length&&Math.floor(Date.now()/400)%2===0)txt('▼',b.x+b.w-22,b.y+b.h-26,16,'#fff');}
+function drawMenu(){const y=H-70;
+  for(let i=0;i<MENU.length;i++){const x=40+i*145,sel=(i===menuIndex);
+    ctx.strokeStyle=sel?'#ff3':'#f80';ctx.lineWidth=2;ctx.strokeRect(x,y,130,40);
+    txt(MENU[i],x+65,y+12,16,sel?'#ff3':'#fa3','center'); if(sel)drawHeart(x+14,y+20,'#f00',5);}}
+function drawSub(){const b=bphase.box;ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.strokeRect(b.x,b.y,b.w,b.h);
+  txt(subType==='act'?'* こうどう':subType==='item'?'* どうぐ':'* みのがす',b.x+12,b.y+8,14,'#aaa');
+  for(let i=0;i<subOptions.length;i++){const yy=b.y+32+i*22,sel=(i===subIndex);
+    txt(subOptions[i],b.x+34,yy,14,sel?'#ff3':'#fff'); if(sel)drawHeart(b.x+18,yy+7,'#f00',5);}
+  txt('X: もどる',b.x+b.w-18,b.y+b.h-20,11,'#666','right');}
+function drawHUD(){const y=H-20;
+  txt(player.name,40,y-6,15,'#fff'); txt('LV '+player.lv,165,y-6,15,'#fff');
+  const hx=240,hw=120; txt('HP',hx-30,y-6,13,'#fff');
+  ctx.fillStyle='#a00';ctx.fillRect(hx,y-4,hw,14); ctx.fillStyle='#ff3';ctx.fillRect(hx,y-4,hw*Math.max(0,player.hp)/player.maxhp,14);
+  txt(Math.max(0,player.hp)+' / '+player.maxhp,hx+hw+12,y-6,14,'#fff');}
+function drawGameOver(){
+  drawImgCover(null,1);
+  txt('* あなたの こころが くだけた。',W/2,180,20,'#fff','center');
+  txt('でも、あきらめないで。',W/2,220,16,'#aaa','center');
+  drawHeart(W/2-12,140,'#f00',6); drawHeart(W/2+12,140,'#f00',6);
+  if(Math.floor(Date.now()/500)%2===0)txt('Z で タイトルへ',W/2,320,16,'#fff','center');}
+
+/* =======================  起動  ======================= */
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
